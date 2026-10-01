@@ -1,0 +1,31 @@
+{
+  "schema_version": 2,
+  "model": {
+    "id": "openai/whisper-large-v3",
+    "provider": "deepinfra"
+  },
+  "engine": {
+    "name": "openrouter-stt",
+    "endpoint": "https://openrouter.ai/api/v1/audio/transcriptions",
+    "response_format": "verbose_json",
+    "timestamp_granularities": ["word", "segment"]
+  },
+  "audio": {
+    "format": "mp3",
+    "sample_rate": 16000,
+    "channels": 1,
+    "bitrate_kbps": 48
+  },
+  "runtime": {
+    "request_timeout_seconds": 170,
+    "max_attempts": 2,
+    "rate_limit_attempts": 6,
+    "rate_limit_backoff_seconds": [15, 30, 60, 60, 60],
+    "retry_after_cap_seconds": 120
+  },
+  "chunking": {
+    "chunk_seconds": 600,
+    "overlap_seconds": 5,
+    "stitch_method": "timestamp_midpoint_overlap_v3"
+  }
+}
