@@ -1,0 +1,380 @@
+{
+  "fixture_set_id": "summary-review-v2-qualification-v1",
+  "episode_template": {
+    "podcast": "Synthetic Qualification",
+    "podcast_id": "synthetic-qualification",
+    "category": "synthetic_review",
+    "prompt": "synthetic-review",
+    "title": "Synthetic summary reviewer qualification case",
+    "published": "2026-09-05T00:00:00Z",
+    "link": "https://example.invalid/synthetic-summary-review-v2"
+  },
+  "podcast_profile": {
+    "category": "synthetic_review",
+    "summary_focus": "Preserve only claims supported by the supplied synthetic transcript."
+  },
+  "cases": [
+    {
+      "case_id": "q1_clean_restraint",
+      "semantic_class": "clean_restraint",
+      "transcript": "In the trial, participants followed the pacing routine for 14 days. The guest said the routine improved consistency for this group, but did not claim it works for everyone.",
+      "draft": "## TL;DR\n\n- Participants followed the pacing routine for 14 days, and the guest said it improved consistency for this group.\n\n## Key Ideas\n\n### Pacing routine\n\nParticipants followed the routine for 14 days. The guest limited the claim to the observed group.\n",
+      "hard_gate": {
+        "required_status": "pass",
+        "risk_expectations": [
+          {
+            "risk_ids": [
+              "R0001",
+              "R0002"
+            ],
+            "required_disposition": "supported"
+          }
+        ],
+        "required_additional_issue_types": [],
+        "required_edit_mode": "byte_preserving_noop",
+        "preserve_unrelated_supported_content": true
+      },
+      "quality_assertions": {
+        "audit_precision": [
+          {
+            "assertion_id": "q1-audit-supported-risks",
+            "predicate": "audit_matches_hard_gate",
+            "weight": 30
+          }
+        ],
+        "evidence_selection": [
+          {
+            "assertion_id": "q1-evidence-supported-spans",
+            "predicate": "issue_evidence_is_minimal_and_valid",
+            "weight": 25
+          }
+        ],
+        "edit_correctness": [
+          {
+            "assertion_id": "q1-edit-byte-noop",
+            "predicate": "pass_edit_is_byte_preserving",
+            "weight": 30
+          }
+        ],
+        "minimality_non_regression": [
+          {
+            "assertion_id": "q1-minimality-no-change",
+            "predicate": "untargeted_supported_content_preserved",
+            "weight": 15
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "q2_unsupported_precision",
+      "semantic_class": "unsupported_precision",
+      "transcript": "The field test involved several dozen sessions. The guest said successful handoffs were common, while noting that some sessions still needed manual correction.",
+      "draft": "## TL;DR\n\n- Successful handoffs occurred in exactly 87% of sessions.\n\n## Key Ideas\n\n### Handoff reliability\n\nThe guest described successful handoffs as common but not universal.\n",
+      "hard_gate": {
+        "required_status": "revised",
+        "risk_expectations": [
+          {
+            "risk_ids": [
+              "R0001"
+            ],
+            "required_disposition": "issue",
+            "required_issue_type": "unsupported_precision"
+          }
+        ],
+        "required_additional_issue_types": [],
+        "required_edit_mode": "changed",
+        "forbidden_final_substrings": [
+          "87%"
+        ],
+        "preserve_unrelated_supported_content": true
+      },
+      "quality_assertions": {
+        "audit_precision": [
+          {
+            "assertion_id": "q2-audit-precision-risk",
+            "predicate": "audit_matches_hard_gate",
+            "weight": 30
+          }
+        ],
+        "evidence_selection": [
+          {
+            "assertion_id": "q2-evidence-precision-support",
+            "predicate": "issue_evidence_is_minimal_and_valid",
+            "weight": 25
+          }
+        ],
+        "edit_correctness": [
+          {
+            "assertion_id": "q2-edit-remove-exact-precision",
+            "predicate": "final_omits_forbidden_substrings",
+            "weight": 30
+          }
+        ],
+        "minimality_non_regression": [
+          {
+            "assertion_id": "q2-minimality-preserve-other-content",
+            "predicate": "untargeted_supported_content_preserved",
+            "weight": 15
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "q3_term_normalization",
+      "semantic_class": "unsupported_term_normalization",
+      "transcript": "The guest referred to the device as aero flux ex nine and said the recorded label was uncertain. They did not establish an official product spelling.",
+      "draft": "## TL;DR\n\n- The AeroFlux-X9 device was the system used in the test.\n\n## Key Ideas\n\n### Device wording\n\nThe transcript's wording for the device name was uncertain.\n",
+      "hard_gate": {
+        "required_status": "revised",
+        "risk_expectations": [
+          {
+            "risk_ids": [
+              "R0001"
+            ],
+            "required_disposition": "issue",
+            "required_issue_type": "unsupported_term_normalization"
+          }
+        ],
+        "required_additional_issue_types": [],
+        "required_edit_mode": "changed",
+        "forbidden_final_substrings": [
+          "AeroFlux-X9"
+        ],
+        "preserve_unrelated_supported_content": true
+      },
+      "quality_assertions": {
+        "audit_precision": [
+          {
+            "assertion_id": "q3-audit-term-risk",
+            "predicate": "audit_matches_hard_gate",
+            "weight": 30
+          }
+        ],
+        "evidence_selection": [
+          {
+            "assertion_id": "q3-evidence-canonical-wording",
+            "predicate": "issue_evidence_is_minimal_and_valid",
+            "weight": 25
+          }
+        ],
+        "edit_correctness": [
+          {
+            "assertion_id": "q3-edit-remove-normalization",
+            "predicate": "final_omits_forbidden_substrings",
+            "weight": 30
+          }
+        ],
+        "minimality_non_regression": [
+          {
+            "assertion_id": "q3-minimality-preserve-other-content",
+            "predicate": "untargeted_supported_content_preserved",
+            "weight": 15
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "q4_epistemic_causal_recommendation_drift",
+      "semantic_class": "epistemic_causal_recommendation_drift",
+      "transcript": "The guest said the timing pattern might be associated with better recovery, but emphasized that the observation was preliminary and did not establish cause. They did not recommend changing anyone's routine from this observation alone.",
+      "draft": "## TL;DR\n\n- Listeners should use the timing pattern because it certainly causes better recovery.\n\n## Key Ideas\n\n### Recovery timing\n\nThe episode proves the timing pattern leads to better recovery.\n",
+      "hard_gate": {
+        "required_status": "revised",
+        "risk_expectations": [
+          {
+            "risk_ids": [
+              "R0001"
+            ],
+            "required_disposition": "issue",
+            "required_issue_type": "recommendation_drift"
+          },
+          {
+            "risk_ids": [
+              "R0002"
+            ],
+            "required_disposition": "issue",
+            "required_issue_type": "epistemic_drift"
+          },
+          {
+            "risk_ids": [
+              "R0003"
+            ],
+            "required_disposition": "issue",
+            "required_issue_type": "causal_overstatement"
+          },
+          {
+            "risk_ids": [
+              "R0004"
+            ],
+            "required_disposition": "issue",
+            "required_issue_type": "epistemic_drift"
+          },
+          {
+            "risk_ids": [
+              "R0005"
+            ],
+            "required_disposition": "issue",
+            "required_issue_type": "causal_overstatement"
+          }
+        ],
+        "required_additional_issue_types": [],
+        "required_edit_mode": "changed",
+        "forbidden_final_substrings": [
+          "should use",
+          "certainly causes",
+          "proves",
+          "leads to"
+        ],
+        "preserve_unrelated_supported_content": true
+      },
+      "quality_assertions": {
+        "audit_precision": [
+          {
+            "assertion_id": "q4-audit-drift-risks",
+            "predicate": "audit_matches_hard_gate",
+            "weight": 30
+          }
+        ],
+        "evidence_selection": [
+          {
+            "assertion_id": "q4-evidence-preliminary-language",
+            "predicate": "issue_evidence_is_minimal_and_valid",
+            "weight": 25
+          }
+        ],
+        "edit_correctness": [
+          {
+            "assertion_id": "q4-edit-remove-overstatement",
+            "predicate": "final_omits_forbidden_substrings",
+            "weight": 30
+          }
+        ],
+        "minimality_non_regression": [
+          {
+            "assertion_id": "q4-minimality-preserve-supported-topic",
+            "predicate": "untargeted_supported_content_preserved",
+            "weight": 15
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "q5_coverage_omission",
+      "semantic_class": "coverage_omission",
+      "transcript": "The guest discussed the training plan, then spent time on how sleep schedules, family responsibilities, and evening routines changed adherence. They said those lifestyle constraints often determined whether the plan was realistic.",
+      "draft": "## TL;DR\n\n- The guest explained the main training plan.\n\n## Key Ideas\n\n### Training plan\n\nThe episode described how the plan was organized.\n",
+      "hard_gate": {
+        "required_status": "revised",
+        "risk_expectations": [],
+        "required_additional_issue_types": [
+          "coverage_omission"
+        ],
+        "additional_issue_expectations": [
+          {
+            "required_issue_type": "coverage_omission",
+            "draft_block_ids": [],
+            "transcript_span_ids": [
+              "S0001"
+            ]
+          }
+        ],
+        "required_edit_mode": "changed",
+        "required_final_any_substrings": [
+          "sleep",
+          "family",
+          "evening",
+          "lifestyle"
+        ],
+        "preserve_unrelated_supported_content": true
+      },
+      "quality_assertions": {
+        "audit_precision": [
+          {
+            "assertion_id": "q5-audit-coverage-issue",
+            "predicate": "audit_matches_hard_gate",
+            "weight": 30
+          }
+        ],
+        "evidence_selection": [
+          {
+            "assertion_id": "q5-evidence-omitted-span",
+            "predicate": "additional_issue_evidence_matches_hard_gate",
+            "weight": 25
+          }
+        ],
+        "edit_correctness": [
+          {
+            "assertion_id": "q5-edit-restore-omitted-topic",
+            "predicate": "final_contains_any_required_substring",
+            "weight": 30
+          }
+        ],
+        "minimality_non_regression": [
+          {
+            "assertion_id": "q5-minimality-preserve-training-plan",
+            "predicate": "untargeted_supported_content_preserved",
+            "weight": 15
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "q6_structure_redundancy",
+      "semantic_class": "structure_redundancy",
+      "transcript": "The guest said the warm-up had two purposes: raising temperature and rehearsing the first movement. They presented those purposes once and then moved to the main session.",
+      "draft": "## TL;DR\n\n- The warm-up raises temperature and rehearses the first movement.\n\n## Key Ideas\n\n### Warm-up\n\nThe warm-up raises temperature and rehearses the first movement.\n\nThe warm-up raises temperature and rehearses the first movement.\n",
+      "hard_gate": {
+        "required_status": "revised",
+        "risk_expectations": [],
+        "required_additional_issue_types": [
+          "redundancy"
+        ],
+        "additional_issue_expectations": [
+          {
+            "required_issue_type": "redundancy",
+            "draft_block_ids": [
+              "D0005",
+              "D0006"
+            ],
+            "transcript_span_ids": []
+          }
+        ],
+        "required_edit_mode": "changed",
+        "max_final_occurrences": {
+          "The warm-up raises temperature and rehearses the first movement.": 2
+        },
+        "preserve_unrelated_supported_content": true
+      },
+      "quality_assertions": {
+        "audit_precision": [
+          {
+            "assertion_id": "q6-audit-redundancy-issue",
+            "predicate": "audit_matches_hard_gate",
+            "weight": 30
+          }
+        ],
+        "evidence_selection": [
+          {
+            "assertion_id": "q6-evidence-duplicate-blocks",
+            "predicate": "additional_issue_evidence_matches_hard_gate",
+            "weight": 25
+          }
+        ],
+        "edit_correctness": [
+          {
+            "assertion_id": "q6-edit-collapse-redundancy",
+            "predicate": "final_respects_occurrence_limits",
+            "weight": 30
+          }
+        ],
+        "minimality_non_regression": [
+          {
+            "assertion_id": "q6-minimality-preserve-supported-warmup",
+            "predicate": "untargeted_supported_content_preserved",
+            "weight": 15
+          }
+        ]
+      }
+    }
+  ]
+}

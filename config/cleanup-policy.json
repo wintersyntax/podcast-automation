@@ -1,0 +1,45 @@
+[
+  {
+    "name": "delete-old-images",
+    "action": {
+      "type": "DELETE"
+    },
+    "condition": {
+      "tagState": "ANY",
+      "packageNamePrefixes": [
+        "podcast-worker",
+        "podcast-human-review"
+      ],
+      "olderThan": "1d"
+    }
+  },
+  {
+    "name": "keep-production-history",
+    "action": {
+      "type": "KEEP"
+    },
+    "mostRecentVersions": {
+      "packageNamePrefixes": [
+        "podcast-worker",
+        "podcast-human-review"
+      ],
+      "keepCount": 3
+    }
+  },
+  {
+    "name": "keep-production-tag",
+    "action": {
+      "type": "KEEP"
+    },
+    "condition": {
+      "tagState": "TAGGED",
+      "tagPrefixes": [
+        "production"
+      ],
+      "packageNamePrefixes": [
+        "podcast-worker",
+        "podcast-human-review"
+      ]
+    }
+  }
+]

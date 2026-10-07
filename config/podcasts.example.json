@@ -1,0 +1,15 @@
+[
+  {
+    "id": "example-podcast",
+    "name": "Example Podcast",
+    "rss": "https://example.com/feed.xml",
+    "enabled": true,
+    "category": "example",
+    "prompt": "example",
+    "apple_podcasts": {
+      "show_id": "0000000000",
+      "show_title": "Example Podcast",
+      "storefront": "us"
+    }
+  }
+]
