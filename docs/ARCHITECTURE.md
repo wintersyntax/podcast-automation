@@ -15,11 +15,8 @@ flowchart LR
     Resolver --> Evidence[Third-ASR + materiality evidence]
     Evidence -->|group + propose, never decide| Review["Human Review<br/>Quick cards · Settled · Full review"]
     Review -->|decision + recompile| Worker
-    Compiler -->|writer configured| Writer[Single-pass structured note writer]
-    Writer --> Checks[Deterministic note checks]
-    Compiler -->|legacy path| Summary[Summary draft]
-    Summary --> IndependentReview[Independent grounded review]
-    IndependentReview --> Checks
+    Compiler -->|compiled| Writer["Single-pass<br/>knowledge-note-v3 writer"]
+    Writer --> Checks["Python checks<br/>anchors · structure · SI · tags"]
     Checks --> Note[Structured Markdown note]
     Note --> GCS
     GCS --> Sync[Optional local vault sync]
