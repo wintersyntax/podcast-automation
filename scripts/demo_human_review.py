@@ -36,6 +36,233 @@ EPISODE = {
 _INITIAL_CARDS = [
     {
         "id": 1,
+        "apple_text": "Creatine monohydrate is well studied for strength.",
+        "whisper_text": "Creatine monohydrate's well studied for strength.",
+        "apple_context": (
+            "The guest is summarizing common evidence-based supplements. "
+            "Creatine monohydrate is well studied for strength, and the discussion "
+            "then moves to practical dosing."
+        ),
+        "whisper_context": (
+            "The guest is summarizing common evidence-based supplements. "
+            "Creatine monohydrate's well studied for strength, and the discussion "
+            "then moves to practical dosing."
+        ),
+        "source_choices": {
+            "apple": "Creatine monohydrate is well studied for strength.",
+            "whisper": "Creatine monohydrate's well studied for strength.",
+        },
+        "materiality": {
+            "group": "sample",
+            "source": "apple",
+            "step": "judge",
+            "reason": "same_content",
+        },
+        "materiality_context": {
+            "left": "The guest is summarizing common evidence-based supplements.",
+            "right": "and the discussion then moves to practical dosing.",
+        },
+        "audio_window": {"start": 72.0, "end": 87.0, "duration": 15.0},
+        "third_asr": None,
+        "third_available": False,
+        "third_window": None,
+        "focus": {"scope": "full"},
+        "suggestion": None,
+        "triage": None,
+        "anomaly": None,
+        "display": {
+            "category": "Control sample",
+            "severity": "Low-impact wording",
+            "reason": "Verify one filter-settled card",
+        },
+        "assisted_review": {
+            "routing": {"eligible": False},
+            "state": "audio_unavailable",
+            "policy_version": "synthetic-demo-v2",
+        },
+    },
+    {
+        "id": 2,
+        "apple_text": "short rest periods can make the set feel harder",
+        "whisper_text": "shorter rest periods can make the set feel harder",
+        "apple_context": (
+            "The coach explains that short rest periods can make the set feel harder "
+            "without changing the main training recommendation."
+        ),
+        "whisper_context": (
+            "The coach explains that shorter rest periods can make the set feel harder "
+            "without changing the main training recommendation."
+        ),
+        "source_choices": {
+            "apple": "short rest periods can make the set feel harder",
+            "whisper": "shorter rest periods can make the set feel harder",
+        },
+        "materiality": {
+            "group": "click_one",
+            "source": None,
+            "step": "fuller",
+            "reason": "same_content_no_decisive_source",
+        },
+        "materiality_context": {
+            "left": "The coach explains that",
+            "right": "without changing the main training recommendation.",
+        },
+        "audio_window": {"start": 118.0, "end": 133.0, "duration": 15.0},
+        "third_asr": None,
+        "third_available": False,
+        "third_window": None,
+        "focus": {"scope": "full"},
+        "suggestion": None,
+        "triage": None,
+        "anomaly": None,
+        "display": {
+            "category": "Harmless rewording",
+            "severity": "Immaterial",
+            "reason": "Pick either reading",
+        },
+        "assisted_review": {
+            "routing": {"eligible": False},
+            "state": "audio_unavailable",
+            "policy_version": "synthetic-demo-v2",
+        },
+    },
+    {
+        "id": 3,
+        "apple_text": "rate of perceived exertion",
+        "whisper_text": "rate of perceived exhaustion",
+        "apple_context": (
+            "For autoregulation, the guest uses rate of perceived exertion to describe "
+            "how close a set feels to failure."
+        ),
+        "whisper_context": (
+            "For autoregulation, the guest uses rate of perceived exhaustion to describe "
+            "how close a set feels to failure."
+        ),
+        "source_choices": {
+            "apple": "rate of perceived exertion",
+            "whisper": "rate of perceived exhaustion",
+        },
+        "materiality": {
+            "group": "proposal",
+            "source": "apple",
+            "step": "third_asr",
+            "reason": "changes_content",
+        },
+        "materiality_context": {
+            "left": "For autoregulation, the guest uses",
+            "right": "to describe how close a set feels to failure.",
+        },
+        "audio_window": {"start": 184.0, "end": 199.0, "duration": 15.0},
+        "third_asr": {
+            "text": "The guest calls it rate of perceived exertion.",
+            "model": "synthetic-third-asr",
+            "duration": 15,
+        },
+        "third_available": True,
+        "third_window": "rate of perceived exertion",
+        "focus": {"scope": "full"},
+        "suggestion": None,
+        "triage": None,
+        "anomaly": None,
+        "display": {
+            "category": "Domain-term difference",
+            "severity": "Material proposal",
+            "reason": "Third ASR supports Apple",
+        },
+        "assisted_review": {
+            "routing": {"eligible": True},
+            "state": "machine_supported_apple",
+            "policy_version": "synthetic-demo-v2",
+        },
+    },
+    {
+        "id": 4,
+        "apple_text": "that is probably fine",
+        "whisper_text": "that's probably fine",
+        "apple_context": (
+            "The host says that is probably fine before moving to the next listener question."
+        ),
+        "whisper_context": (
+            "The host says that's probably fine before moving to the next listener question."
+        ),
+        "source_choices": {
+            "apple": "that is probably fine",
+            "whisper": "that's probably fine",
+        },
+        "materiality": {
+            "group": "settled",
+            "source": "whisper",
+            "step": "judge",
+            "reason": "same_content",
+        },
+        "materiality_context": {
+            "left": "The host says",
+            "right": "before moving to the next listener question.",
+        },
+        "audio_window": {"start": 232.0, "end": 247.0, "duration": 15.0},
+        "third_asr": None,
+        "third_available": False,
+        "third_window": None,
+        "focus": {"scope": "full"},
+        "suggestion": None,
+        "triage": None,
+        "anomaly": None,
+        "display": {
+            "category": "Contraction",
+            "severity": "Immaterial",
+            "reason": "Filter-settled",
+        },
+        "assisted_review": {
+            "routing": {"eligible": False},
+            "state": "audio_unavailable",
+            "policy_version": "synthetic-demo-v2",
+        },
+    },
+    {
+        "id": 5,
+        "apple_text": "we are going to talk about protein timing",
+        "whisper_text": "we're gonna talk about protein timing",
+        "apple_context": (
+            "After the break, we are going to talk about protein timing and meal frequency."
+        ),
+        "whisper_context": (
+            "After the break, we're gonna talk about protein timing and meal frequency."
+        ),
+        "source_choices": {
+            "apple": "we are going to talk about protein timing",
+            "whisper": "we're gonna talk about protein timing",
+        },
+        "materiality": {
+            "group": "settled",
+            "source": "apple",
+            "step": "fuller",
+            "reason": "same_content",
+        },
+        "materiality_context": {
+            "left": "After the break,",
+            "right": "and meal frequency.",
+        },
+        "audio_window": {"start": 268.0, "end": 283.0, "duration": 15.0},
+        "third_asr": None,
+        "third_available": False,
+        "third_window": None,
+        "focus": {"scope": "full"},
+        "suggestion": None,
+        "triage": None,
+        "anomaly": None,
+        "display": {
+            "category": "Conversational wording",
+            "severity": "Immaterial",
+            "reason": "Filter-settled",
+        },
+        "assisted_review": {
+            "routing": {"eligible": False},
+            "state": "audio_unavailable",
+            "policy_version": "synthetic-demo-v2",
+        },
+    },
+    {
+        "id": 6,
         "apple_text": "The trial included 42 participants and lasted twelve weeks.",
         "whisper_text": "The trial included 40 participants and lasted twelve weeks.",
         "apple_context": (
@@ -52,58 +279,37 @@ _INITIAL_CARDS = [
             "apple": "The trial included 42 participants and lasted twelve weeks.",
             "whisper": "The trial included 40 participants and lasted twelve weeks.",
         },
-        "audio_window": {"start": 93.0, "end": 108.0, "duration": 15.0},
-        "third_asr": None,
-        "third_available": False,
-        "third_window": None,
+        "materiality": {
+            "group": "full",
+            "source": None,
+            "step": "protected_number",
+            "reason": "different_values",
+        },
+        "materiality_context": {
+            "left": "The guest described a resistance-training trial.",
+            "right": "with strength and hypertrophy outcomes measured at the end.",
+        },
+        "audio_window": {"start": 318.0, "end": 333.0, "duration": 15.0},
+        "third_asr": {
+            "text": "The trial included forty-two participants and lasted twelve weeks.",
+            "model": "synthetic-third-asr",
+            "duration": 15,
+        },
+        "third_available": True,
+        "third_window": "42 participants",
         "focus": {"scope": "full"},
         "suggestion": None,
         "triage": None,
         "anomaly": None,
         "display": {
             "category": "Study sample-size difference",
-            "severity": "High-risk difference",
-            "reason": "Compiler requires human review",
+            "severity": "Protected value conflict",
+            "reason": "Different values require human review",
         },
         "assisted_review": {
-            "routing": {"eligible": False},
-            "state": "audio_unavailable",
-            "policy_version": "synthetic-demo-v1",
-        },
-    },
-    {
-        "id": 2,
-        "apple_text": "Romanian deadlift",
-        "whisper_text": "Roman deadlift",
-        "apple_context": (
-            "For the hip-hinge example, the speaker specifically used the "
-            "Romanian deadlift when discussing hamstring loading."
-        ),
-        "whisper_context": (
-            "For the hip-hinge example, the speaker specifically used the "
-            "Roman deadlift when discussing hamstring loading."
-        ),
-        "source_choices": {
-            "apple": "Romanian deadlift",
-            "whisper": "Roman deadlift",
-        },
-        "audio_window": {"start": 301.5, "end": 316.5, "duration": 15.0},
-        "third_asr": None,
-        "third_available": False,
-        "third_window": None,
-        "focus": {"scope": "full"},
-        "suggestion": None,
-        "triage": None,
-        "anomaly": None,
-        "display": {
-            "category": "Exercise-name difference",
-            "severity": "Needs review",
-            "reason": "Needs human review",
-        },
-        "assisted_review": {
-            "routing": {"eligible": False},
-            "state": "audio_unavailable",
-            "policy_version": "synthetic-demo-v1",
+            "routing": {"eligible": True},
+            "state": "machine_supported_apple",
+            "policy_version": "synthetic-demo-v2",
         },
     },
 ]
@@ -129,6 +335,7 @@ def create_demo_app() -> Flask:
     app = Flask(__name__)
     cards = deepcopy(_INITIAL_CARDS)
     decisions: list[dict] = []
+    materiality_review_log: list[dict] = []
     recompile_started = False
 
     def _record() -> dict:
@@ -136,6 +343,7 @@ def create_demo_app() -> Flask:
             "episode_key": EPISODE_KEY,
             "human_review": deepcopy(cards),
             "human_decisions": deepcopy(decisions),
+            "materiality_review_log": deepcopy(materiality_review_log),
             "human_review_generation_fingerprint": "sha256:" + "d" * 64,
             "source_fingerprint": "sha256:" + "e" * 64,
         }
@@ -209,12 +417,20 @@ def create_demo_app() -> Flask:
         card = next((item for item in cards if item["id"] == difference_id), None)
         if card is None:
             return jsonify({"error": "Review item is not pending"}), 404
-        if difference_id == 1:
-            text = "The trial included forty-two participants and lasted twelve weeks."
-            window = "42 participants"
+        if difference_id in {3, 6}:
+            text = (
+                "The guest says rate of perceived exertion."
+                if difference_id == 3
+                else "The trial included forty-two participants and lasted twelve weeks."
+            )
+            window = (
+                "rate of perceived exertion"
+                if difference_id == 3
+                else "42 participants"
+            )
         else:
-            text = "The speaker used the Romanian deadlift as the hip-hinge example."
-            window = "Romanian deadlift"
+            text = "Synthetic third-ASR evidence agrees with the fuller reading."
+            window = card["source_choices"]["apple"]
         card["third_asr"] = {
             "text": text,
             "model": "synthetic-third-asr",
@@ -264,6 +480,76 @@ def create_demo_app() -> Flask:
         decisions.append(entry)
         return jsonify({
             "decision": deepcopy(entry),
+            "ready_to_recompile": not cards,
+        })
+
+    @app.post("/api/review/episodes/<episode_key>/materiality-decision")
+    def materiality_decision(episode_key: str):
+        if episode_key != EPISODE_KEY:
+            return jsonify({"error": "Unknown synthetic episode"}), 404
+
+        body = request.get_json(silent=True) or {}
+        expected_generation = body.get("expected_generation_fingerprint")
+        current_generation = "sha256:" + "d" * 64
+        if expected_generation != current_generation:
+            return jsonify({"error": "Synthetic review generation changed"}), 409
+
+        requested = body.get("decisions")
+        if not isinstance(requested, list) or not requested:
+            return jsonify({"error": "Materiality decisions are required"}), 400
+
+        plan: list[tuple[int, dict, str, str, int]] = []
+        seen: set[int] = set()
+        for requested_entry in requested:
+            if not isinstance(requested_entry, dict):
+                return jsonify({"error": "Materiality decision entries must be objects"}), 400
+            difference_id = requested_entry.get("id")
+            source = requested_entry.get("source")
+            if not isinstance(difference_id, int) or difference_id in seen:
+                return jsonify({"error": "Materiality decision ids must be unique integers"}), 400
+            if source not in {"apple", "whisper"}:
+                return jsonify({"error": "Materiality source must be apple or whisper"}), 400
+            index = next((i for i, card in enumerate(cards) if card["id"] == difference_id), None)
+            if index is None:
+                return jsonify({"error": f"Review item {difference_id} is not pending"}), 409
+            card = cards[index]
+            materiality = card.get("materiality") or {}
+            group = materiality.get("group")
+            if group == "full":
+                return jsonify({"error": "Full-review cards require an individual decision"}), 409
+            if group == "settled" and source != materiality.get("source"):
+                return jsonify({"error": "Settled cards must keep the filter reading"}), 409
+            chosen_text = card.get("source_choices", {}).get(source)
+            if not isinstance(chosen_text, str) or not chosen_text:
+                return jsonify({"error": "Selected source has no replacement text"}), 400
+            seconds = requested_entry.get("seconds", 0)
+            seconds = int(seconds) if isinstance(seconds, (int, float)) and seconds >= 0 else 0
+            plan.append((difference_id, card, source, chosen_text, seconds))
+            seen.add(difference_id)
+
+        accepted_ids = {difference_id for difference_id, *_ in plan}
+        cards[:] = [card for card in cards if card["id"] not in accepted_ids]
+
+        for difference_id, card, source, chosen_text, seconds in plan:
+            decisions.append({
+                "id": difference_id,
+                "chosen_source": source,
+                "chosen_text": chosen_text,
+                "reviewed_by": "synthetic-demo-human",
+                "materiality": deepcopy(card.get("materiality")),
+                "seconds": seconds,
+            })
+
+        session = body.get("session")
+        if isinstance(session, dict):
+            materiality_review_log.append({
+                "accepted_count": len(plan),
+                "settled_list_opened": bool(session.get("settled_list_opened")),
+                "note": session.get("note") or None,
+            })
+
+        return jsonify({
+            "accepted_count": len(plan),
             "ready_to_recompile": not cards,
         })
 
