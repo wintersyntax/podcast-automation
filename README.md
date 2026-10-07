@@ -17,7 +17,8 @@ This repository is a curated portfolio version of a larger private production pr
 - deterministic evidence/provenance checks around bounded AI-assisted resolution
 - explicit Human Review for material unresolved conflicts
 - episode-level AI budget admission, settlement and provenance tracking
-- independent transcript-grounded summary review before publication
+- single-pass, transcript-grounded knowledge-note writer with deterministic publication checks
+- an independent transcript-grounded summary-review path when the writer is not configured
 - deterministic metadata/frontmatter construction for Markdown knowledge notes
 - separate Cloud Run worker and Human Review service boundaries
 - optional Slack signalling and macOS credential/sync helpers
@@ -59,9 +60,12 @@ flowchart LR
     Resolver -->|material ambiguity| Review[Human Review]
     Review -->|decision + recompile| Worker
 
-    Compiler -->|resolved| Draft[Summary draft]
+    Compiler -->|resolved| Writer[Single-pass structured note writer]
+    Writer --> Checks[Path-specific validation]
+    Compiler -->|legacy path| Draft[Summary draft]
     Draft --> SummaryReview[Independent grounded review]
-    SummaryReview --> Note[Structured Markdown note]
+    SummaryReview --> Checks
+    Checks --> Note[Structured Markdown note]
     Note --> GCS
     GCS --> Sync[Optional local vault sync]
 ```
@@ -80,9 +84,9 @@ The important boundary is authority: model output can assist inside explicit con
 8. Use a bounded resolver only for eligible conflicts.
 9. Route remaining material disagreements to Human Review.
 10. Recompile after durable review decisions.
-11. Generate a summary draft from the canonical transcript.
-12. Run an independent transcript-grounded review.
-13. Construct metadata/frontmatter deterministically and publish the final note.
+11. When a knowledge-writer preset is configured, generate a structured `knowledge-note-v3` note from the canonical transcript in one writer stage; otherwise use the summary draft, independent review and metadata path.
+12. Apply deterministic structure and transcript-anchor checks to the writer note, or validate the accepted review chain on the legacy path.
+13. Construct frontmatter deterministically and publish the final note only after its path's checks pass.
 
 ## Human Review
 
@@ -151,7 +155,7 @@ examples/launchd/      sanitized macOS launch-agent examples
 
 The checked-in podcast configuration is intentionally disabled and synthetic. Start from `config/podcasts.example.json` and `.env.example`.
 
-The committed OpenRouter preset lock is also an example identity, not a production preset. A real deployment must provide its own verified preset/version configuration.
+The committed OpenRouter preset lock is also an example identity, not a production preset. A real deployment must provide its own verified preset/version configuration. `PODCAST_KNOWLEDGE_WRITER_PRESET` selects the single-pass writer; the summary-review path remains available when it is unset.
 
 ## Public-repository safety
 
