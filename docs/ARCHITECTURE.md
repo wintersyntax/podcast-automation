@@ -14,9 +14,12 @@ flowchart LR
     Compiler --> Resolver[Bounded resolver]
     Resolver -->|material ambiguity| Review[Human Review]
     Review -->|decision + recompile| Worker
-    Compiler -->|resolved| Summary[Summary draft]
+    Compiler -->|writer configured| Writer[Single-pass structured note writer]
+    Writer --> Checks[Deterministic note checks]
+    Compiler -->|legacy path| Summary[Summary draft]
     Summary --> IndependentReview[Independent grounded review]
-    IndependentReview --> Note[Structured Markdown note]
+    IndependentReview --> Checks
+    Checks --> Note[Structured Markdown note]
     Note --> GCS
     GCS --> Sync[Optional local vault sync]
 ```
@@ -28,6 +31,8 @@ flowchart LR
 - **AI calls** may propose bounded interpretations or edits only inside explicit contracts.
 - **Humans** decide material transcript conflicts that remain unresolved.
 - **Google Cloud Storage** is the durable canonical artifact store; local files are working or derivative copies.
+
+When `PODCAST_KNOWLEDGE_WRITER_PRESET` is set, the writer receives the whole compiled transcript and returns a structured `knowledge-note-v3` note with topics, people and tag proposals. Python validates and renders the note, resolves tags, and builds frontmatter. Without that preset, the earlier summary, independent review and metadata chain remains available. Neither path can publish before its checks complete.
 
 ## Reliability model
 
