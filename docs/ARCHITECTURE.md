@@ -6,7 +6,7 @@ Podcast Automation separates source acquisition, evidence reconciliation, human 
 flowchart LR
     RSS[RSS feeds] --> Worker[Cloud Run worker]
     Worker --> Audio[Episode audio]
-    Audio --> Whisper[OpenRouter Whisper]
+    Audio --> Whisper[OpenRouter Qwen3-ASR\nlogical Whisper source]
     Worker --> Apple[Apple transcript acquisition]
     Whisper --> GCS[(Google Cloud Storage)]
     Apple --> GCS
@@ -28,6 +28,7 @@ flowchart LR
 ## Authority boundaries
 
 - **Source transcripts** are evidence, not interchangeable guesses.
+- **The logical `Whisper` source** is currently produced by OpenRouter `qwen/qwen3-asr-1.7b`; model, provider, encoding, chunking and stitch identity are provenance-bound so older producers are not silently reused.
 - **Python-owned deterministic logic** controls identity, state transitions, evidence IDs, budgets, validation, and publication gates.
 - **AI calls** may propose bounded interpretations, materiality judgments or edits only inside explicit contracts.
 - **Third-ASR/materiality evidence** can reduce reviewer work but cannot write canonical transcript text by itself.

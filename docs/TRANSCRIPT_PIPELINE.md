@@ -4,7 +4,7 @@ The transcript pipeline is designed around disagreement preservation rather than
 
 1. Discover the latest configured RSS episode and resume older incomplete episodes.
 2. Download the audio to ephemeral worker storage.
-3. Produce the Whisper source through OpenRouter `openai/whisper-large-v3` in bounded MP3 chunks with word/segment timestamps, explicit producer provenance, AI-budget reservations and bounded HTTP 429 backoff.
+3. Produce the logical Whisper source through OpenRouter `qwen/qwen3-asr-1.7b` in bounded MP3 chunks with word/segment timestamps, explicit producer provenance, AI-budget reservations and bounded HTTP 429 backoff. The parser normalizes Qwen's segment-join timestamp backsteps only within a strict bound and restores word boundaries when provider words omit leading spaces; larger timestamp regressions still fail closed.
 4. Acquire an independent Apple transcript when available.
 5. Store source artifacts separately with provenance.
 6. Align and compare the two sources.

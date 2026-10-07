@@ -12,7 +12,7 @@ This repository is a curated portfolio version of a larger private production pr
 ## Engineering highlights
 
 - resumable RSS-driven episode processing with durable GCS-backed state
-- independent Apple Podcasts and OpenRouter `whisper-large-v3` transcript acquisition with bounded chunking, retry and spend accounting
+- independent Apple Podcasts and OpenRouter `qwen/qwen3-asr-1.7b` transcript acquisition with bounded chunking, retry and spend accounting
 - transcript alignment and conservative multi-source reconciliation
 - deterministic evidence/provenance checks around bounded AI-assisted resolution
 - explicit Human Review for material unresolved conflicts, with prefetched Third-ASR evidence and a materiality-first quick-review queue
@@ -38,6 +38,8 @@ This makes the project intentionally more domain-aware than a generic podcast su
 
 ## Why multiple transcript sources?
 
+The historical `Whisper` source name is retained in storage/schema paths, but the current producer is OpenRouter `qwen/qwen3-asr-1.7b`. Producer identity includes the model and stitch policy, so artifacts from the earlier `whisper-large-v3` producer are not reused.
+
 A fluent transcript is not necessarily a trustworthy transcript. Differences involving numbers, units, negations, names, citations or domain terminology can materially change meaning.
 
 This system keeps independent sources separate, compares their evidence, resolves only what can be justified, and stops for human judgment when confidence is insufficient.
@@ -48,7 +50,7 @@ This system keeps independent sources separate, compares their evidence, resolve
 flowchart LR
     RSS[RSS feeds] --> Worker[Cloud Run worker]
     Worker --> Audio[Episode audio]
-    Audio --> Whisper[Whisper transcription]
+    Audio --> Whisper[OpenRouter Qwen3-ASR\n"Whisper" source]
     Worker --> Apple[Apple transcript acquisition]
 
     Whisper --> GCS[(Google Cloud Storage)]
@@ -77,7 +79,7 @@ The important boundary is authority: model output can assist inside explicit con
 
 1. Discover the latest configured RSS episode and resume older incomplete work.
 2. Download episode audio to ephemeral worker storage.
-3. Generate a chunked OpenRouter `whisper-large-v3` transcript with producer provenance, budget reservations and bounded rate-limit backoff.
+3. Generate the logical "Whisper" source with OpenRouter `qwen/qwen3-asr-1.7b` in bounded chunks, with producer provenance, budget reservations, segment/word timestamp normalization and bounded rate-limit backoff.
 4. Acquire an independent Apple transcript when available.
 5. Store both source artifacts separately.
 6. Align and compare the sources.
