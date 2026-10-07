@@ -98,7 +98,7 @@ The same Flask review application can run locally or as a separate service. Revi
 
 ![Human Review demo](assets/demo-human-review.gif)
 
-*The synthetic demo shows a high-risk study sample-size conflict (**42 vs 40 participants**) and a deliberately simplified exercise-name conflict (**Romanian deadlift vs Roman deadlift**). The exercise-name example is pedagogical: earlier compiler and bounded-resolution stages are intended to remove many obvious or low-risk differences before Human Review. The important boundary is that protected disagreements such as negations, protocol numbers, units, citations and other domain-sensitive mismatches are not silently normalized away.*
+*The synthetic demo mirrors the current materiality-first flow: a control sample, a quick source choice, an evidence-backed proposal, one-click confirmation of filter-settled cards, and a protected **42 vs 40 participants** conflict that still requires an explicit human decision. Third-ASR and materiality evidence can reduce review work, but they never write canonical transcript text on their own.*
 
 Current Human Review uses a materiality-first queue. Low-impact cards can be presented as a control sample, a fast Apple/Whisper choice, or a one-click proposal; cards the filter cannot safely simplify stay in ordinary review. A 10% control sample (at least two cards, excluding representation-only classes) checks the filter in real use. Third-ASR and older tier/batch/assisted surfaces remain advisory and are kept under advanced controls. The system never silently turns those signals into canonical transcript text.
 

@@ -28,7 +28,7 @@ The fixture mirrors the current materiality-first Human Review flow with six inv
 
 Every save still creates explicit synthetic human decisions. The demo backend never lets the materiality filter write canonical text on its own.
 
-## README GIF: materiality-first flow
+## Portfolio GIF: materiality-first flow
 
 Target length: roughly 20–30 seconds.
 
@@ -41,28 +41,11 @@ Target length: roughly 20–30 seconds.
 7. Show the Apple/Whisper disagreement, context, audio and cached Third-ASR evidence; choose **Apple** and confirm.
 8. Finish on **Human review complete** and click **Recompile & continue**, leaving the last frame on **Worker started**.
 
-The resulting asset should replace:
+The resulting asset is the single Human Review animation used by the portfolio README:
 
 ```text
 assets/demo-human-review.gif
 ```
-
-## Detailed evidence GIF
-
-A second, shorter GIF can focus on the authority boundary rather than the whole queue:
-
-1. progress to the protected **42 vs 40 participants** card;
-2. show the two transcript readings and surrounding context;
-3. show the audio control and cached Third-ASR evidence;
-4. choose Apple explicitly and confirm the selection.
-
-Suggested asset:
-
-```text
-assets/demo-human-review-evidence.gif
-```
-
-This second GIF is useful in `docs/HUMAN_REVIEW.md` because it makes the central rule visible: Third ASR and materiality evidence can help the reviewer, but only the explicit human choice becomes canonical.
 
 ## Safety
 
