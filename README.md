@@ -17,9 +17,8 @@ This repository is a curated portfolio version of a larger private production pr
 - deterministic evidence/provenance checks around bounded AI-assisted resolution
 - explicit Human Review for material unresolved conflicts, with prefetched Third-ASR evidence and a materiality-first quick-review queue
 - episode-level AI budget admission, settlement and provenance tracking
-- single-pass, transcript-grounded knowledge-note writer with deterministic publication checks
-- an independent transcript-grounded summary-review path when the writer is not configured
-- deterministic metadata/frontmatter construction for Markdown knowledge notes
+- single-pass, transcript-grounded `knowledge-note-v3` writer with deterministic publication checks
+- Python-owned validation, tag resolution and deterministic metadata/frontmatter construction
 - separate Cloud Run worker and Human Review service boundaries
 - optional Slack signalling and macOS credential/sync helpers
 
@@ -63,11 +62,8 @@ flowchart LR
     Evidence -->|group + propose, never decide| Review["Human Review<br/>Quick cards · Settled · Full review"]
     Review -->|decision + recompile| Worker
 
-    Compiler -->|resolved| Writer[Single-pass structured note writer]
-    Writer --> Checks[Path-specific validation]
-    Compiler -->|legacy path| Draft[Summary draft]
-    Draft --> SummaryReview[Independent grounded review]
-    SummaryReview --> Checks
+    Compiler -->|compiled| Writer["Single-pass<br/>knowledge-note-v3 writer"]
+    Writer --> Checks["Python checks<br/>anchors · structure · SI · tags"]
     Checks --> Note[Structured Markdown note]
     Note --> GCS
     GCS --> Sync[Optional local vault sync]
@@ -88,9 +84,9 @@ The important boundary is authority: model output can assist inside explicit con
 9. Prefetch bounded Third-ASR evidence for remaining cards and record a materiality verdict without granting either mechanism transcript authority.
 10. Present Human Review as quick cards first, then one explicit settled-card confirmation, ordinary review for what remains, and finally recompile. Every stored choice remains an audited human decision.
 11. Recompile after durable review decisions.
-12. When a knowledge-writer preset is configured, generate a structured `knowledge-note-v3` note from the canonical transcript in one writer stage; otherwise use the summary draft, independent review and metadata path.
-13. Apply deterministic structure and transcript-anchor checks to the writer note, or validate the accepted review chain on the legacy path.
-14. Construct frontmatter deterministically and publish the final note only after its path's checks pass.
+12. Generate a structured `knowledge-note-v3` note from the canonical transcript through the verified single-pass knowledge-writer preset; the same response carries topics, people and tag proposals.
+13. Validate structure and transcript anchors in Python, remove unsupported units/sponsor/stub content, convert marked quantities to SI, resolve tags and render the Markdown body deterministically.
+14. Construct frontmatter in Python and publish only after those checks pass.
 
 ## Human Review
 
@@ -159,7 +155,7 @@ examples/launchd/      sanitized macOS launch-agent examples
 
 The checked-in podcast configuration is intentionally disabled and synthetic. Start from `config/podcasts.example.json` and `.env.example`.
 
-The committed OpenRouter preset lock is also an example identity, not a production preset. A real deployment must provide its own verified preset/version configuration. `PODCAST_KNOWLEDGE_WRITER_PRESET` selects the single-pass writer; the summary-review path remains available when it is unset. Optional review tuning is controlled through the Third-ASR/materiality environment switches documented in `.env.example`.
+The committed OpenRouter preset lock is also an example identity, not a production preset. The current knowledge-generation architecture requires a verified `PODCAST_KNOWLEDGE_WRITER_PRESET` for the single-pass `knowledge-note-v3` writer. Optional review tuning is controlled through the Third-ASR/materiality environment switches documented in `.env.example`.
 
 ## Public-repository safety
 
