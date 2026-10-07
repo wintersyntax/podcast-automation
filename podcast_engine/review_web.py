@@ -633,7 +633,7 @@ def create_review_app() -> Flask:
     require_auth = os.environ.get("REVIEW_REQUIRE_AUTH", "false").casefold() == "true"
     oauth_client_id = os.environ.get("GOOGLE_OAUTH_CLIENT_ID")
     session_secret = os.environ.get("REVIEW_SESSION_SECRET")
-    allowed_email = os.environ.get("REVIEW_ALLOWED_EMAIL", "petar.tivo@gmail.com").casefold()
+    allowed_email = os.environ.get("REVIEW_ALLOWED_EMAIL", "reviewer@example.com").casefold()
 
     if require_auth and (not oauth_client_id or not session_secret):
         raise RuntimeError("Google review login requires GOOGLE_OAUTH_CLIENT_ID and REVIEW_SESSION_SECRET")

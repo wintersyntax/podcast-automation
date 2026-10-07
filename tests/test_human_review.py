@@ -555,9 +555,9 @@ class HumanReviewTests(unittest.TestCase):
             "REVIEW_REQUIRE_AUTH": "true",
             "GOOGLE_OAUTH_CLIENT_ID": "client-id.apps.googleusercontent.com",
             "REVIEW_SESSION_SECRET": "session-secret",
-            "REVIEW_ALLOWED_EMAIL": "petar.tivo@gmail.com",
+            "REVIEW_ALLOWED_EMAIL": "reviewer@example.com",
         }
-        with patch.dict(os.environ, environment, clear=False), patch("podcast_engine.review_web.load_episodes", return_value=[episode]), patch("podcast_engine.review_web.load_review_record", return_value=record), patch("podcast_engine.review_web.id_token.verify_oauth2_token", return_value={"email": "petar.tivo@gmail.com", "email_verified": True}):
+        with patch.dict(os.environ, environment, clear=False), patch("podcast_engine.review_web.load_episodes", return_value=[episode]), patch("podcast_engine.review_web.load_review_record", return_value=record), patch("podcast_engine.review_web.id_token.verify_oauth2_token", return_value={"email": "reviewer@example.com", "email_verified": True}):
             client = create_review_app().test_client()
             self.assertEqual(client.get("/").status_code, 302)
             self.assertIn(b"client-id.apps.googleusercontent.com", client.get("/login").data)
