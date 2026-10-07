@@ -51,7 +51,14 @@ To install the local helper when needed:
 
 `vault_sync.py` copies only ready/completed canonical GCS `summary.md` files
 to `PODCAST_VAULT_DIR` (optional relative `PODCAST_VAULT_SUBDIR`). Identical
-files are no-ops. Its LaunchAgent runs on load and at 09:00, 15:00 and 21:00.
+files are no-ops. Changed files are replaced atomically. If an existing iCloud
+file cannot be read because macOS reports `Resource deadlock avoided`, Vault
+Sync replaces it from the canonical GCS bytes instead of abandoning the run;
+other read/write failures still stop the sync. A scheduled failure can send an
+immediate Healthchecks `/fail` signal through `PODCAST_VAULT_SYNC_HEARTBEAT_URL`,
+and success is reported only after the full scheduled run completes. Single-
+episode manual syncs do not change monitor state. Its LaunchAgent runs on load
+and at 09:00, 15:00 and 21:00.
 
 Both plist files are validated with `plutil -lint`; installed jobs must point
 to `macos_agent.apple_token_maintenance` and `macos_agent.vault_sync`.
