@@ -1,0 +1,38 @@
+{
+  "benchmark_id": "summary-review-v1-public-synthetic",
+  "episode_key": "synthetic-benchmark-episode",
+  "expected_compiled_sha256": "synthetic-public-fixture",
+  "draft_summary_preset_version": 1,
+  "draft_summary_prompt_sha256": "sha256:synthetic-public-fixture",
+  "prompt_path": "config/summary-review-benchmark-v1-prompt.txt",
+  "runs_per_model": 3,
+  "temperature": 0.2,
+  "max_tokens": 6144,
+  "models": [
+    "openai/gpt-5-mini",
+    "anthropic/claude-haiku-4.5",
+    "anthropic/claude-sonnet-4.6",
+    "qwen/qwen3-235b-a22b-2507",
+    "qwen/qwen3.6-35b-a3b"
+  ],
+  "provider": {
+    "allow_fallbacks": true,
+    "data_collection": "deny",
+    "require_parameters": true
+  },
+  "rubric_weights": {
+    "fidelity": 35,
+    "coverage": 25,
+    "non_regression": 15,
+    "structure_redundancy": 10,
+    "contract_reliability": 10,
+    "readability_density": 5
+  },
+  "model_parameter_overrides": {
+    "openai/gpt-5-mini": {
+      "temperature": null,
+      "max_tokens": null,
+      "max_completion_tokens": 6144
+    }
+  }
+}

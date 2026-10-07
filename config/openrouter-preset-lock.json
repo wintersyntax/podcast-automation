@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "presets": {
+    "transcript_reviewer": {
+      "slug": "example-transcript-reviewer",
+      "local_policy_version": "resolver-policy-v5",
+      "preset_id": "00000000-0000-4000-8000-000000000001",
+      "designated_version_id": "00000000-0000-4000-8000-000000000002",
+      "version": 1,
+      "config": {
+        "max_tokens": 8192,
+        "model": "google/gemini-3.6-flash",
+        "provider": {
+          "allow_fallbacks": true,
+          "data_collection": "deny",
+          "require_parameters": true,
+          "zdr": false
+        },
+        "reasoning": {
+          "enabled": true,
+          "exclude": true
+        },
+        "temperature": 0
+      },
+      "config_sha256": "sha256:445cd797d0d512708ef8d65e7d317942e914865d573893bb463552522ebe2ae2",
+      "system_prompt_sha256": "sha256:REPLACE_WITH_YOUR_VERIFIED_PROMPT_HASH"
+    }
+  }
+}

@@ -1,0 +1,11 @@
+feedparser==6.0.14
+
+google-auth==2.57.0
+google-cloud-storage==3.13.1
+
+python-dotenv==1.2.3
+requests==2.34.2
+PyYAML==6.0.3
+
+functions-framework==3.9.2
+gunicorn==23.0.0
