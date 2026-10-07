@@ -978,7 +978,7 @@ def _send_email_payload(
 
     from_address = os.environ.get(
         "PODCAST_REVIEW_EMAIL_FROM",
-        "notifications@podcastops.link",
+        "notifications@example.com",
     ).strip()
 
     from_name = (
