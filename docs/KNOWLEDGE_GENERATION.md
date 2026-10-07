@@ -1,26 +1,18 @@
 # Knowledge generation
 
-A completed canonical transcript is transformed into a durable knowledge note through one of two guarded paths. `PODCAST_KNOWLEDGE_WRITER_PRESET` selects the single-pass writer when it is set.
+A completed canonical transcript is transformed into a durable knowledge note through the current single-pass `knowledge-note-v3` path. A real deployment must configure a verified `PODCAST_KNOWLEDGE_WRITER_PRESET` whose system prompt matches `prompts/knowledge/note-writer-v1.md`.
 
-## Single-pass writer
+## Current production path
 
-1. Send the whole compiled transcript, bounded episode context and tag vocabulary to a verified writer preset whose system prompt matches `prompts/knowledge/note-writer-v1.md`.
-2. Receive a structured `knowledge-note-v3` note with topics, people and tag proposals. Each physical request reserves from the episode AI budget; an invalid structure permits one more request, while a truncated response does not.
-3. Validate the structure in Python. Remove individual units with unsupported transcript anchors, sponsor content or label-only stubs; reject the whole note if too many anchored units fail or no section remains.
-4. Convert marked quantities, render the Markdown body and resolve tags deterministically. Store the checked structured note and spend/provenance record in the existing knowledge manifest.
-5. Construct frontmatter in Python and publish only after the checks pass. A cached checked note can be rendered again without a model call when the renderer changes.
+1. Send the whole compiled transcript, bounded episode context and tag vocabulary to the verified writer preset.
+2. Receive one structured `knowledge-note-v3` response containing the note plus topics, people and tag proposals. Each physical request reserves from the episode AI budget; an invalid structure permits one more request, while a truncated response does not.
+3. Validate the full structure in Python. Individual units whose transcript anchors cannot be supported, sponsor/ad content and label-only stubs are removed; the whole note fails only when the bounded publication checks say it is no longer trustworthy.
+4. Convert marked quantities to SI in Python, render the Markdown body deterministically and resolve tags against the controlled registry.
+5. Store the checked structured note together with bounded spend/provenance evidence in the existing knowledge manifest.
+6. Construct YAML frontmatter in Python and publish only after the checks pass. A cached checked note can be rendered again without another model call when renderer-only behavior changes.
 
-## Summary-review path
+The model never authors arbitrary frontmatter, controls publication state, or silently repairs uncertain transcript wording. Source-truth decisions remain upstream in the compiler and Human Review.
 
-When no writer preset is configured, the earlier path remains available only with an active summary-review preset:
+## Compatibility code
 
-1. Generate a Markdown summary draft from the canonical compiled transcript.
-2. Normalize layout without changing semantics.
-3. Derive deterministic transcript spans, draft blocks and risk items.
-4. Run an independent transcript-grounded reviewer through AUDIT and EDIT contracts.
-5. Validate evidence coverage, edit obligations and non-regression in Python.
-6. Generate structured metadata under a strict schema.
-7. Construct YAML frontmatter deterministically in Python.
-8. Publish the final Markdown note only after the accepted review chain is valid.
-
-Neither path lets a model author arbitrary frontmatter. The independent reviewer cannot invent evidence IDs or silently use outside knowledge to repair uncertain transcript wording.
+The curated codebase still contains older summary, summary-review and metadata modules plus their regression tests because the private production project has not yet physically removed that compatibility surface. They are **not part of the current production deployment or the portfolio architecture shown in this repository**. New knowledge notes use the single-pass writer described above.
