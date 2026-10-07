@@ -42,7 +42,7 @@ if str(REPO_ROOT) not in sys.path:
 from compiler.assisted_review import derive_assisted_state
 
 
-DEFAULT_BUCKET = "YOUR_GCS_BUCKET"
+DEFAULT_BUCKET = "podcast-worker-data-506417"
 REPORT_SCHEMA_VERSION = 1
 SOURCE_CHOICES = ("apple", "whisper", "third", "custom", "<unknown>")
 UNKNOWN = "<unknown>"
@@ -404,6 +404,7 @@ def build_telemetry(bucket: Any, *, episode_key: str | None = None, bucket_name:
     by_kind: dict[str, Counter[str]] = defaultdict(Counter)
     by_category: dict[str, Counter[str]] = defaultdict(Counter)
     by_severity: dict[str, Counter[str]] = defaultdict(Counter)
+    by_tier: Counter[str] = Counter()
     episodes: list[dict[str, Any]] = []
 
     for episode in sorted(episode_records, key=lambda item: str(item.get("episode_key", ""))):
@@ -425,6 +426,7 @@ def build_telemetry(bucket: Any, *, episode_key: str | None = None, bucket_name:
             by_kind[_label(review_item.get("kind"))][source] += 1
             by_category[_label(review_item.get("category"))][source] += 1
             by_severity[_label(review_item.get("severity"))][source] += 1
+            by_tier[_decision_tier(decision)] += 1
         raw_pending_items = resolver.get("human_review") if isinstance(resolver, dict) else None
         fingerprint = resolver.get("source_fingerprint") if isinstance(resolver, dict) else None
         ledger = None
@@ -435,6 +437,7 @@ def build_telemetry(bucket: Any, *, episode_key: str | None = None, bucket_name:
             "podcast": podcast,
             "title": _label(episode.get("title")),
             "human_decisions": len(episode_decisions),
+            "decisions_by_tier": dict(sorted(Counter(_decision_tier(d) for d in episode_decisions).items())),
             "source_choice": _source_summary(_source_counts(episode_decisions), len(episode_decisions)),
             "resolver": _resolver_episode(resolver) if isinstance(resolver, dict) else None,
             "compiler": _compiler_episode(compiler) if isinstance(compiler, dict) else None,
@@ -462,6 +465,7 @@ def build_telemetry(bucket: Any, *, episode_key: str | None = None, bucket_name:
             "by_kind": _breakdown_summary(by_kind),
             "by_category": _breakdown_summary(by_category),
             "by_severity": _breakdown_summary(by_severity),
+            "by_tier": dict(sorted(by_tier.items())),
         },
         "resolver": _aggregate_resolver(episodes),
         "compiler": _aggregate_compiler(episodes),
@@ -487,6 +491,14 @@ def _markdown_breakdown(title: str, values: dict[str, dict[str, dict[str, int | 
         cells = [f"{sources[source]['count']}/{sources[source]['denominator']} ({sources[source]['percentage']:.2f}%)" for source in SOURCE_CHOICES]
         lines.append("| " + str(label).replace("|", "\\|") + " | " + " | ".join(cells) + " |")
     return lines + [""]
+
+
+def _decision_tier(decision: dict[str, Any]) -> str:
+    """Tier recorded with a decision (TASK-127); older decisions have none."""
+
+    tier = decision.get("review_tier")
+    value = tier.get("tier") if isinstance(tier, dict) else None
+    return value if value in {"A", "B", "C"} else "unrecorded"
 
 
 def render_markdown(report: dict[str, Any]) -> str:
@@ -515,6 +527,10 @@ def render_markdown(report: dict[str, Any]) -> str:
     lines += _markdown_breakdown("By review-item kind", human["by_kind"])
     lines += _markdown_breakdown("By review-item category", human["by_category"])
     lines += _markdown_breakdown("By review-item severity", human["by_severity"])
+    if human.get("by_tier"):
+        lines += ["## Decisions by review tier (TASK-127)", "", "| Tier | Decisions |", "| --- | ---: |"]
+        lines += [f"| {tier} | {count} |" for tier, count in human["by_tier"].items()]
+        lines += [""]
     resolver = report["resolver"]
     lines += ["## Resolver outcomes", "", "| Metric | Availability | Count |", "| --- | --- | ---: |"]
     for name, value in resolver["metrics"].items():

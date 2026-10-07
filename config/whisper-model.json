@@ -19,8 +19,8 @@
   "runtime": {
     "request_timeout_seconds": 170,
     "max_attempts": 2,
-    "rate_limit_attempts": 6,
-    "rate_limit_backoff_seconds": [15, 30, 60, 60, 60],
+    "rate_limit_attempts": 8,
+    "rate_limit_backoff_seconds": [15, 30, 60, 120, 120, 120, 120],
     "retry_after_cap_seconds": 120
   },
   "chunking": {

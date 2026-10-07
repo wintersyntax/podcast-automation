@@ -1107,6 +1107,30 @@ def _retryable(error: Exception) -> bool:
     return status is not None and 500 <= status < 600
 
 
+def _rate_limit_reason(error: Exception) -> str:
+    """Short, secret-free description of a 429 for the run log.
+
+    Records only the provider error message (truncated) and whether
+    Retry-After was sent, so repeated limits can be attributed to the key,
+    OpenRouter, or the upstream provider.
+    """
+
+    response = getattr(error, "response", None)
+    headers = getattr(response, "headers", None) or {}
+    message = ""
+    try:
+        body = response.json() if response is not None else None
+    except ValueError:
+        body = None
+    if isinstance(body, dict):
+        error_body = body.get("error")
+        if isinstance(error_body, dict) and isinstance(error_body.get("message"), str):
+            message = error_body["message"]
+    message = " ".join(message.split())[:160] or "no message"
+    retry_after = "Retry-After" if headers.get("Retry-After") is not None else "no Retry-After"
+    return f"{message}; {retry_after}"
+
+
 def _rate_limit_delay_seconds(error: Exception, retry_index: int) -> float:
     """Wait before retrying an HTTP 429: Retry-After when given, else backoff.
 
@@ -1182,7 +1206,10 @@ def _transcribe_chunk(
             if status == 429 and rate_limit_retries < RATE_LIMIT_ATTEMPTS - 1:
                 delay = _rate_limit_delay_seconds(error, rate_limit_retries)
                 rate_limit_retries += 1
-                print(f"Rate limited (HTTP 429); retrying chunk in {delay:.0f}s")
+                print(
+                    f"Rate limited (HTTP 429); retrying chunk in {delay:.0f}s"
+                    f" [{_rate_limit_reason(error)}]"
+                )
                 time.sleep(delay)
                 continue
             if status != 429 and transient_retries < MAX_ATTEMPTS - 1 and _retryable(error):

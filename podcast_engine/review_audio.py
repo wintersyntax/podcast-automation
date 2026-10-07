@@ -5,8 +5,10 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
+import re
 import subprocess
 from typing import Any
 
@@ -19,6 +21,14 @@ OPENROUTER_STT_URL = "https://openrouter.ai/api/v1/audio/transcriptions"
 THIRD_ASR_MODEL = os.environ.get("THIRD_ASR_MODEL", "openai/gpt-transcribe")
 REVIEW_CLIP_SECONDS = float(os.environ.get("REVIEW_CLIP_SECONDS", "12"))
 REVIEW_CLIP_MAX_SECONDS = float(os.environ.get("REVIEW_CLIP_MAX_SECONDS", "15"))
+# TASK-126: a card longer than the default clip gets a clip that covers its
+# words plus a margin on each side, so the context anchors around the card
+# are inside the clip. Speech rate is a conservative estimate for the longer
+# of the two source readings.
+REVIEW_CLIP_LONG_MAX_SECONDS = float(os.environ.get("REVIEW_CLIP_LONG_MAX_SECONDS", "30"))
+REVIEW_CLIP_MARGIN_SECONDS = 3.0
+REVIEW_CLIP_WORDS_PER_SECOND = 2.5
+_CLIP_WORD = re.compile(r"[^\W_]+(?:['’][^\W_]+)*", re.UNICODE)
 THIRD_ASR_TIMEOUT_SECONDS = int(os.environ.get("THIRD_ASR_TIMEOUT_SECONDS", "120"))
 
 
@@ -50,6 +60,37 @@ def clip_window(
         "end": round(window_end, 3),
         "duration": round(window_end - window_start, 3),
     }
+
+
+def review_clip_window(item: dict, *, duration: float | None = None) -> dict[str, float]:
+    """Clip window for one review card, long enough to hold its context.
+
+    Short cards keep the default clip around the Whisper timestamps. A card
+    whose Whisper span, or whose longer source reading at about 2.5 words per
+    second, does not fit with a 3 s margin on each side gets a longer clip,
+    capped at ``REVIEW_CLIP_LONG_MAX_SECONDS``. Reversed timestamps are read
+    as a span.
+    """
+
+    start = item.get("whisper_start_timestamp")
+    end = item.get("whisper_end_timestamp")
+    if start is not None and end is not None and float(end) < float(start):
+        start, end = end, start
+    words = max(
+        len(_CLIP_WORD.findall(value))
+        for value in (item.get("apple_text"), item.get("whisper_text"), "")
+        if isinstance(value, str)
+    )
+    span = 0.0
+    if start is not None and end is not None:
+        span = max(0.0, float(end) - float(start))
+    needed = max(span, words / REVIEW_CLIP_WORDS_PER_SECOND) + 2 * REVIEW_CLIP_MARGIN_SECONDS
+    if needed <= REVIEW_CLIP_SECONDS:
+        return clip_window(start, end, duration=duration)
+    # Whole seconds: providers bill whole seconds, and an integral clip keeps
+    # the reservation equal to what is billed.
+    target = float(min(REVIEW_CLIP_LONG_MAX_SECONDS, math.ceil(max(REVIEW_CLIP_MAX_SECONDS, needed))))
+    return clip_window(start, end, duration=duration, target_seconds=target, max_seconds=target)
 
 
 def extract_audio_clip(

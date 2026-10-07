@@ -13,7 +13,7 @@ from .episode_identity import episode_key_for
 
 
 BUCKET_NAME = os.environ.get(
-    "PODCAST_GCS_BUCKET", "YOUR_GCS_BUCKET"
+    "PODCAST_GCS_BUCKET", "podcast-worker-data-506417"
 ).removeprefix("gs://").strip("/")
 STORAGE_FILE = "episodes.json"
 
@@ -294,6 +294,42 @@ def request_whisper_retranscription(episode_key):
         except PreconditionFailed:
             continue
     raise RuntimeError("episodes.json changed repeatedly while requesting re-transcription")
+
+
+def request_recompilation(episode_key):
+    """Recompile one episode that is waiting in Human Review (TASK-131).
+
+    Sets ``status.compiler`` back to ``ready`` (both sources present, not
+    compiled), so the next Worker run compiles
+    the existing canonical sources again with the current compiler and
+    replaces the pending Human Review queue. Sources, transcripts and spend are
+    untouched; only episodes waiting in review are accepted. The write is
+    generation-conditional.
+    """
+
+    for _ in range(3):
+        episodes, generation = load_episodes_with_generation()
+        matches = [
+            index for index, episode in enumerate(episodes)
+            if episode.get("episode_key") == episode_key
+        ]
+        if len(matches) != 1:
+            raise ValueError(f"Expected exactly one episode {episode_key}, found {len(matches)}")
+        episode = episodes[matches[0]]
+        compiler_state = episode["status"]["compiler"].get("state")
+        if compiler_state != "review_required":
+            raise ValueError(
+                f"Episode {episode_key} has compiler state {compiler_state!r}; "
+                "only episodes waiting in Human Review can be recompiled"
+            )
+        episode["status"]["compiler"] = {"state": "ready", "updated_at": now_iso()}
+        episode["updated_at"] = now_iso()
+        try:
+            save_episodes(episodes, if_generation_match=generation)
+            return episode
+        except PreconditionFailed:
+            continue
+    raise RuntimeError("episodes.json changed repeatedly while requesting recompilation")
 
 
 def update_episode(

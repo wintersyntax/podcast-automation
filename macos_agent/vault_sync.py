@@ -9,13 +9,16 @@ affects the cloud pipeline.
 from __future__ import annotations
 
 import argparse
+import errno
 import os
 import re
 import subprocess
+import tempfile
 import unicodedata
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 from dotenv import load_dotenv
 
@@ -89,17 +92,28 @@ def vault_sync_heartbeat_url(
 
 def send_vault_sync_heartbeat(
     env: dict[str, str] | None = None,
+    *,
+    failed: bool = False,
 ) -> bool:
-    """Send a success heartbeat without exposing the configured URL.
+    """Send a success or failure signal without exposing the configured URL.
 
     A missing heartbeat URL is a supported configuration and is treated as a
-    no-op. A failed heartbeat never turns an otherwise successful vault sync
-    into a failed vault sync; Healthchecks itself will detect the missed ping.
+    no-op. A failed signal never changes the vault sync result; Healthchecks
+    itself will detect a missed ping if delivery fails.
     """
     heartbeat_url = vault_sync_heartbeat_url(env)
 
     if not heartbeat_url:
         return False
+
+    if failed:
+        parsed_url = urlsplit(heartbeat_url)
+        heartbeat_url = urlunsplit(
+            parsed_url._replace(path=f"{parsed_url.path.rstrip('/')}/fail")
+        )
+
+    signal = "failure_signal" if failed else "heartbeat"
+    signal_name = "failure signal" if failed else "heartbeat"
 
     try:
         result = subprocess.run(
@@ -120,16 +134,16 @@ def send_vault_sync_heartbeat(
     except (OSError, subprocess.SubprocessError):
         print(
             '{"severity":"WARNING",'
-            '"event":"vault_sync_heartbeat_failed",'
-            '"message":"Vault sync heartbeat delivery failed."}'
+            f'"event":"vault_sync_{signal}_failed",'
+            f'"message":"Vault sync {signal_name} delivery failed."}}'
         )
         return False
 
     if result.returncode != 0:
         print(
             '{"severity":"WARNING",'
-            '"event":"vault_sync_heartbeat_failed",'
-            '"message":"Vault sync heartbeat delivery failed.",'
+            f'"event":"vault_sync_{signal}_failed",'
+            f'"message":"Vault sync {signal_name} delivery failed.",'
             f'"return_code":{result.returncode}'
             "}"
         )
@@ -137,8 +151,8 @@ def send_vault_sync_heartbeat(
 
     print(
         '{"severity":"INFO",'
-        '"event":"vault_sync_heartbeat_sent",'
-        '"message":"Vault sync heartbeat delivered successfully."}'
+        f'"event":"vault_sync_{signal}_sent",'
+        f'"message":"Vault sync {signal_name} delivered successfully."}}'
     )
     return True
 
@@ -246,18 +260,37 @@ def export_vault_summary(
         subdir,
     )
 
-    if (
-        destination.exists()
-        and destination.read_bytes() == content
-    ):
-        print(f"Vault summary unchanged: {destination}")
-        return destination, False
+    try:
+        if (
+            destination.exists()
+            and destination.read_bytes() == content
+        ):
+            print(f"Vault summary unchanged: {destination}")
+            return destination, False
+    except OSError as error:
+        if error.errno != errno.EDEADLK:
+            raise
+        print(f"Vault summary destination read blocked; replacing: {destination}")
 
     destination.parent.mkdir(
         parents=True,
         exist_ok=True,
     )
-    destination.write_bytes(content)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=destination.parent,
+            prefix=f".{destination.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
+            stream.write(content)
+        os.replace(temporary, destination)
+        temporary = None
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
     print(f"Vault summary exported: {destination}")
     return destination, True
@@ -354,7 +387,13 @@ def main(
 
     except ValueError as error:
         print(f"Vault summary sync failed: {error}")
+        if args.all_ready:
+            send_vault_sync_heartbeat(failed=True)
         return 2
+    except Exception:
+        if args.all_ready:
+            send_vault_sync_heartbeat(failed=True)
+        raise
 
     return 0
 
