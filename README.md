@@ -50,7 +50,7 @@ This system keeps independent sources separate, compares their evidence, resolve
 flowchart LR
     RSS[RSS feeds] --> Worker[Cloud Run worker]
     Worker --> Audio[Episode audio]
-    Audio --> Whisper[OpenRouter Qwen3-ASR\n"Whisper" source]
+    Audio --> Whisper["OpenRouter Qwen3-ASR<br/>logical Whisper source"]
     Worker --> Apple[Apple transcript acquisition]
 
     Whisper --> GCS[(Google Cloud Storage)]
