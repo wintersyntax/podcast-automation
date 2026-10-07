@@ -20,6 +20,7 @@ from google.api_core.exceptions import GoogleAPICallError, NotFound, Preconditio
 
 from compiler.assisted_review import derive_assisted_state
 from compiler.third_asr_window import anchored_third_asr_window
+from compiler.review_tiers import derive_review_tier, review_tier_snapshot
 from compiler.review_policy import (
     ASSISTED_REVIEW_POLICY_VERSION,
     assisted_routing,
@@ -35,6 +36,7 @@ from .ai_budget import (
     _EPISODE_KEY,
     _SOURCE_FINGERPRINT,
     STAGE_THIRD_ASR,
+    ensure_fresh_third_asr_budget_identity,
     mark_budget_attempt_uncertain,
     release_budget_attempt_pre_send,
     require_third_asr_budget_identity_reconciled,
@@ -48,7 +50,7 @@ from .review_audio import (
     THIRD_ASR_MODEL,
     THIRD_ASR_RETRYABLE_FAILURE_CLASSES,
     classify_third_asr_failure,
-    clip_window,
+    review_clip_window,
     extract_audio_clip,
     third_asr_cache_key,
     transcribe_review_clip,
@@ -388,9 +390,7 @@ def _finalize_third_asr_evidence(
         except ValueError:
             return evidence
 
-        window = clip_window(
-            item.get("whisper_start_timestamp"), item.get("whisper_end_timestamp")
-        )
+        window = review_clip_window(item)
         current_cache_key = third_asr_cache_key(
             input_fingerprint=record.get("input_fingerprint"),
             item_id=difference_id,
@@ -804,9 +804,7 @@ def begin_assisted_preparation(
         items[difference_id] = item
 
     windows = {
-        difference_id: clip_window(
-            item.get("whisper_start_timestamp"), item.get("whisper_end_timestamp")
-        )
+        difference_id: review_clip_window(item)
         for difference_id, item in items.items()
     }
     cache_keys = {
@@ -835,8 +833,8 @@ def begin_assisted_preparation(
     if uncached_ids:
         # The whole-selection hold itself is paid Third-ASR admission, so it
         # must use the same TASK-109 compatibility gate as direct execution.
-        require_third_asr_budget_identity_reconciled(
-            episode_key, source_fingerprint
+        ensure_fresh_third_asr_budget_identity(
+            episode_key, source_fingerprint, record.get("input_fingerprint")
         )
         resolved_api_key = api_key or os.getenv("PODCAST_REVIEW_ASR_API_KEY")
         if not resolved_api_key:
@@ -1395,6 +1393,7 @@ def record_human_decision(
         "note": note.strip() if isinstance(note, str) and note.strip() else None,
         "review_item": item,
         "routing_provenance": _routing_snapshot(item),
+        "review_tier": review_tier_snapshot(item),
     }
     if representation is not None:
         decision["representation_text"] = representation
@@ -1499,6 +1498,7 @@ def _apply_batch_source_decision(
         "note": None,
         "review_item": item,
         "routing_provenance": _routing_snapshot(item),
+        "review_tier": review_tier_snapshot(item),
     }
     if scope == "partial":
         decision["focus_apple_text"] = item["focus"]["apple_text"]
@@ -1572,6 +1572,285 @@ def record_human_decision_batch(
     raise RuntimeError(
         "Review record changed repeatedly while recording batch decisions"
     )
+
+
+# TASK-127: tier-A confirmation.
+#
+# The reviewer sends only card IDs. Python re-derives every card's tier from
+# the current record and records the tier-A source proposal as an ordinary
+# audited human source decision; any card that is no longer tier A, or whose
+# proposal changed, rejects the whole confirmation.
+
+TIER_A_MAX_ITEMS = 100
+
+
+def _validated_tier_a_ids(ids: object) -> list[int]:
+    if not isinstance(ids, list) or not ids:
+        raise ValueError("Tier-A confirmation needs a non-empty list of review IDs")
+    if len(ids) > TIER_A_MAX_ITEMS:
+        raise ValueError(f"Tier-A confirmation is limited to {TIER_A_MAX_ITEMS} cards")
+    validated: list[int] = []
+    for difference_id in ids:
+        if isinstance(difference_id, bool) or not isinstance(difference_id, int):
+            raise ValueError("Tier-A confirmation IDs must be integers")
+        if difference_id in validated:
+            raise ValueError("Tier-A confirmation may not repeat a review ID")
+        validated.append(difference_id)
+    return validated
+
+
+def _apply_tier_a_decision(record: dict, difference_id: int) -> None:
+    item = _item(record, difference_id)
+    tier = derive_review_tier(item)
+    if tier["tier"] != "A" or tier["source"] not in {"apple", "whisper"}:
+        raise ValueError(f"Review item {difference_id} is no longer in tier A")
+    chosen_text, scope = _decision_text(item, tier["source"], None)
+    if chosen_text != tier["text"]:
+        raise ValueError(f"Review item {difference_id} tier-A proposal changed")
+
+    decision = {
+        "id": difference_id,
+        "chosen_source": tier["source"],
+        "chosen_text": chosen_text,
+        "scope": scope,
+        "reviewed_by": "human",
+        "reviewed_at": now_iso(),
+        "note": None,
+        "review_item": item,
+        "routing_provenance": _routing_snapshot(item),
+        "review_tier": review_tier_snapshot(item),
+    }
+    if scope == "partial":
+        decision["focus_apple_text"] = item["focus"]["apple_text"]
+        decision["focus_whisper_text"] = item["focus"]["whisper_text"]
+
+    record["human_decisions"] = [
+        existing
+        for existing in record.get("human_decisions", [])
+        if isinstance(existing, dict) and existing.get("id") != difference_id
+    ] + [decision]
+    record["human_review"] = [
+        existing
+        for existing in record.get("human_review", [])
+        if isinstance(existing, dict) and existing.get("id") != difference_id
+    ]
+    record["human_review_queue_fingerprint"] = review_queue_fingerprint(
+        record["human_review"]
+    )
+    record["human_review_updated_at"] = now_iso()
+
+
+def record_tier_a_decision_batch(
+    episode_key: str,
+    ids: object,
+    *,
+    expected_generation_fingerprint: str,
+) -> dict:
+    """Atomically record the human-confirmed tier-A proposals of the given cards."""
+
+    validated = _validated_tier_a_ids(ids)
+    if (
+        not isinstance(expected_generation_fingerprint, str)
+        or not expected_generation_fingerprint
+    ):
+        raise ValueError("Expected review generation is required")
+
+    for _ in range(3):
+        record, object_generation = load_review_record_with_generation(episode_key)
+        if (
+            record.get("human_review_generation_fingerprint")
+            != expected_generation_fingerprint
+        ):
+            raise ValueError("Review generation changed; reload before confirming tier A")
+        working = copy.deepcopy(record)
+        for difference_id in validated:
+            _apply_tier_a_decision(working, difference_id)
+        try:
+            save_review_record(
+                episode_key,
+                working,
+                if_generation_match=object_generation,
+            )
+            return working
+        except PreconditionFailed:
+            continue
+
+    raise RuntimeError(
+        "Review record changed repeatedly while recording tier-A decisions"
+    )
+
+
+# TASK-133: decisions on cards the materiality filter grouped (control
+# sample, "click one", proposals, and the settled cards the reviewer accepts
+# with one explicit click). Every member is an ordinary audited human source
+# decision that also snapshots the filter's grouping and reading.
+
+MATERIALITY_DECISION_MAX_ITEMS = 200
+MATERIALITY_CARD_MAX_SECONDS = 3600
+MATERIALITY_NOTE_MAX_CHARS = 2000
+MATERIALITY_REVIEW_LOG_MAX_ENTRIES = 200
+_MATERIALITY_DECIDABLE_GROUPS = frozenset({"settled", "sample", "click_one", "proposal"})
+
+
+def _validated_materiality_requests(decisions: object) -> list[dict]:
+    if not isinstance(decisions, list) or not decisions:
+        raise ValueError("Materiality decisions need a non-empty list")
+    if len(decisions) > MATERIALITY_DECISION_MAX_ITEMS:
+        raise ValueError(f"Materiality decisions are limited to {MATERIALITY_DECISION_MAX_ITEMS} cards")
+    validated: list[dict] = []
+    seen: set[int] = set()
+    for request in decisions:
+        if not isinstance(request, dict) or not {"id", "source"} <= set(request) <= {"id", "source", "seconds"}:
+            raise ValueError("Each materiality decision needs an id and a source (and optionally seconds)")
+        difference_id, source = request["id"], request["source"]
+        seconds = request.get("seconds")
+        if seconds is not None and (
+            isinstance(seconds, bool) or not isinstance(seconds, (int, float))
+            or not 0 <= seconds <= MATERIALITY_CARD_MAX_SECONDS
+        ):
+            raise ValueError("Materiality decision seconds must be a number of seconds")
+        if isinstance(difference_id, bool) or not isinstance(difference_id, int):
+            raise ValueError("Materiality decision IDs must be integers")
+        if difference_id in seen:
+            raise ValueError("Materiality decisions may not repeat a review ID")
+        if source not in {"apple", "whisper"}:
+            raise ValueError("Materiality decisions choose Apple or Whisper")
+        seen.add(difference_id)
+        validated.append({"id": difference_id, "source": source, "seconds": seconds})
+    return validated
+
+
+def _validated_review_session(session: object) -> dict:
+    """Bounded audit context sent with a save: page start, list opened, a note."""
+
+    if session is None:
+        return {}
+    if not isinstance(session, dict) or not set(session) <= {"started_at", "settled_list_opened", "note"}:
+        raise ValueError("Review session must hold only started_at, settled_list_opened and note")
+    started_at = session.get("started_at")
+    opened = session.get("settled_list_opened")
+    note = session.get("note")
+    if started_at is not None and (not isinstance(started_at, str) or len(started_at) > 40):
+        raise ValueError("Review session started_at must be a short timestamp")
+    if opened is not None and not isinstance(opened, bool):
+        raise ValueError("Review session settled_list_opened must be true or false")
+    if note is not None and (not isinstance(note, str) or len(note) > MATERIALITY_NOTE_MAX_CHARS):
+        raise ValueError(f"Review notes are limited to {MATERIALITY_NOTE_MAX_CHARS} characters")
+    return {
+        "started_at": started_at,
+        "settled_list_opened": opened,
+        "note": note.strip() if isinstance(note, str) and note.strip() else None,
+    }
+
+
+def _materiality_review_log_entry(decisions: list[dict], session: dict) -> dict:
+    """One audit entry per save: what was decided, how often the filter was overruled, time, notes."""
+
+    by_group: dict[str, int] = {}
+    overruled: dict[str, int] = {}
+    seconds = 0.0
+    for decision in decisions:
+        snapshot = decision["materiality"]
+        group = snapshot["group"]
+        by_group[group] = by_group.get(group, 0) + 1
+        if snapshot["agrees_with_filter"] is False:
+            overruled[group] = overruled.get(group, 0) + 1
+        seconds += snapshot.get("seconds") or 0
+    return {
+        "at": now_iso(),
+        "started_at": session.get("started_at"),
+        "decisions": len(decisions),
+        "by_group": by_group,
+        "overruled_filter": overruled,
+        "seconds": round(seconds),
+        "settled_list_opened": session.get("settled_list_opened"),
+        "note": session.get("note"),
+    }
+
+
+def _apply_materiality_decision(record: dict, request: dict, groups: dict) -> None:
+    difference_id, source = request["id"], request["source"]
+    item = _item(record, difference_id)
+    group = groups.get(difference_id)
+    if not isinstance(group, dict) or group.get("group") not in _MATERIALITY_DECIDABLE_GROUPS:
+        raise ValueError(f"Review item {difference_id} is not in a materiality group")
+    if group["group"] == "settled" and source != group.get("source"):
+        raise ValueError(f"Review item {difference_id} settled reading changed; reload")
+    chosen_text, scope = _decision_text(item, source, None)
+    decision = {
+        "id": difference_id,
+        "chosen_source": source,
+        "chosen_text": chosen_text,
+        "scope": scope,
+        "reviewed_by": "human",
+        "reviewed_at": now_iso(),
+        "note": None,
+        "review_item": item,
+        "routing_provenance": _routing_snapshot(item),
+        "review_tier": review_tier_snapshot(item),
+        "materiality": {
+            "group": group["group"],
+            "filter_source": group.get("source"),
+            "step": group.get("step"),
+            "reason": group.get("reason"),
+            "agrees_with_filter": group.get("source") == source if group.get("source") else None,
+            "seconds": request.get("seconds"),
+        },
+    }
+    if scope == "partial":
+        decision["focus_apple_text"] = item["focus"]["apple_text"]
+        decision["focus_whisper_text"] = item["focus"]["whisper_text"]
+    record["human_decisions"] = [
+        existing
+        for existing in record.get("human_decisions", [])
+        if isinstance(existing, dict) and existing.get("id") != difference_id
+    ] + [decision]
+    record["human_review"] = [
+        existing
+        for existing in record.get("human_review", [])
+        if isinstance(existing, dict) and existing.get("id") != difference_id
+    ]
+    return decision
+
+
+def record_materiality_decision_batch(
+    episode_key: str,
+    decisions: object,
+    *,
+    expected_generation_fingerprint: str,
+    session: object = None,
+) -> dict:
+    """Atomically record explicit human decisions on materiality-grouped cards.
+
+    Python re-derives every card's group from its current evidence; a settled
+    card is accepted only with the filter's own reading, and any card outside
+    the groups (or a stale generation) rejects the whole request.
+    """
+
+    from .materiality_queue import materiality_groups
+
+    validated = _validated_materiality_requests(decisions)
+    review_session = _validated_review_session(session)
+    if not isinstance(expected_generation_fingerprint, str) or not expected_generation_fingerprint:
+        raise ValueError("Expected review generation is required")
+    for _ in range(3):
+        record, object_generation = load_review_record_with_generation(episode_key)
+        if record.get("human_review_generation_fingerprint") != expected_generation_fingerprint:
+            raise ValueError("Review generation changed; reload before confirming")
+        working = copy.deepcopy(record)
+        groups = materiality_groups(record, episode_key, pending_review_items(record))
+        recorded = [_apply_materiality_decision(working, request, groups) for request in validated]
+        log = [entry for entry in working.get("materiality_review_log", []) if isinstance(entry, dict)]
+        log.append(_materiality_review_log_entry(recorded, review_session))
+        working["materiality_review_log"] = log[-MATERIALITY_REVIEW_LOG_MAX_ENTRIES:]
+        working["human_review_queue_fingerprint"] = review_queue_fingerprint(working["human_review"])
+        working["human_review_updated_at"] = now_iso()
+        try:
+            save_review_record(episode_key, working, if_generation_match=object_generation)
+            return working
+        except PreconditionFailed:
+            continue
+    raise RuntimeError("Review record changed repeatedly while recording materiality decisions")
 
 
 # TASK-076 Task 11: Assisted decision batch.
@@ -1696,6 +1975,7 @@ def _apply_assisted_batch_decision(
         "note": None,
         "review_item": item,
         "routing_provenance": routing_snapshot,
+        "review_tier": review_tier_snapshot(item),
         "decision_support": decision_support,
     }
     if scope == "partial":
@@ -2370,7 +2650,7 @@ def ensure_audio_clip(episode: dict, item: dict, *, fingerprint: str) -> tuple[P
     ASR completes. Review clips are never cached in GCS or the project tree.
     """
 
-    window = clip_window(item.get("whisper_start_timestamp"), item.get("whisper_end_timestamp"))
+    window = review_clip_window(item)
     prefix = f"podcast-review-{episode['episode_key']}-{item['id']}-"
     handle, raw_path = tempfile.mkstemp(prefix=prefix, suffix=".wav")
     os.close(handle)
@@ -2431,9 +2711,7 @@ def ensure_third_asr(
     evidence_fingerprint = record["input_fingerprint"]
     budget_fingerprint = record["source_fingerprint"]
     item = _item(record, difference_id)
-    window = clip_window(
-        item.get("whisper_start_timestamp"), item.get("whisper_end_timestamp")
-    )
+    window = review_clip_window(item)
     cache_key = third_asr_cache_key(
         input_fingerprint=evidence_fingerprint, item_id=difference_id, window=window
     )
@@ -2445,7 +2723,9 @@ def ensure_third_asr(
     # TASK-109: every paid Third-ASR path is fail-closed until historical
     # input-keyed budget ledgers are explicitly reconciled against this
     # source-generation ledger. Cache hits above remain free/read-only.
-    require_third_asr_budget_identity_reconciled(episode_key, budget_fingerprint)
+    ensure_fresh_third_asr_budget_identity(
+        episode_key, budget_fingerprint, evidence_fingerprint
+    )
 
     resolved_api_key = api_key or os.getenv("PODCAST_REVIEW_ASR_API_KEY")
     if not resolved_api_key:
@@ -2455,7 +2735,7 @@ def ensure_third_asr(
         THIRD_ASR_MODEL, api_key=resolved_api_key, transport=pricing_transport, now=pricing_now
     )
     # decimal_from_admission_input rejects raw floats outright (money math
-    # never uses binary floating point); clip_window's "duration" is a
+    # never uses binary floating point); review_clip_window's "duration" is a
     # plain float, so it is converted via its exact decimal string
     # representation, never coerced implicitly.
     reserved_usd = derive_audio_reservation_usd(

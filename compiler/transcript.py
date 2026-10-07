@@ -1681,7 +1681,12 @@ def _build_differences(
             representation is not None
             and source_only_source is None
             and not citation_signal
-            and not domain_terms
+            and (
+                not domain_terms
+                # TASK-131: a spacing-only variant of a domain term ("lat
+                # pull down" / "lat pulldown") names the same term.
+                or representation["equivalence_class"] == "compound_spacing"
+            )
         ):
             kind = "representation_equivalent"
             severity = "low"

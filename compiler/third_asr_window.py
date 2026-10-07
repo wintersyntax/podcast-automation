@@ -7,8 +7,10 @@ left and right context, never the whole clip (which would duplicate the
 surrounding sentences in the canonical transcript).
 
 The window is derived deterministically and fails closed: both anchors must
-be found exactly and unambiguously in the clip transcript, otherwise no
-window exists and the reviewer must use Custom/Edit instead. The result is
+be found exactly in the clip transcript, in order; when an anchor repeats
+(TASK-126, longer clips), the ordered pair whose window length is closest to
+the card's own length is used only if no other pair is equally close.
+Otherwise no window exists and the reviewer must use Custom/Edit instead. The result is
 reviewer-facing evidence only; it never selects a source by itself.
 """
 
@@ -17,7 +19,7 @@ from __future__ import annotations
 import re
 import unicodedata
 
-WINDOW_METHOD = "context-anchor-v1"
+WINDOW_METHOD = "context-anchor-v2"
 _ANCHOR_SIZES = (3, 2)
 _MAX_EXTRA_WINDOW_TOKENS = 12
 _CONTEXT_RADIUS_TOKENS = 30
@@ -84,13 +86,58 @@ def _scope_contexts(item: dict, source: str) -> tuple[str, str, int] | None:
     return left, right, len(_token_values(span))
 
 
-def _unique_occurrence(haystack: list[str], needle: list[str], start: int = 0) -> int | None:
-    hits = [
+def _occurrences(haystack: list[str], needle: list[str], start: int = 0) -> list[int]:
+    return [
         index
         for index in range(start, len(haystack) - len(needle) + 1)
         if haystack[index:index + len(needle)] == needle
     ]
+
+
+def _unique_occurrence(haystack: list[str], needle: list[str], start: int = 0) -> int | None:
+    hits = _occurrences(haystack, needle, start)
     return hits[0] if len(hits) == 1 else None
+
+
+def _anchor_pair(
+    values: list[str],
+    left_anchor: list[str],
+    right_anchor: list[str],
+    span_tokens: int,
+) -> tuple[int, int, bool] | None:
+    """Return (window_start, right_at, disambiguated) for one anchor size.
+
+    The unambiguous case (each anchor occurs once, in order) is unchanged.
+    TASK-126: when an anchor repeats inside a longer clip, every ordered
+    left/right pair within the size limit is considered and the pair whose
+    window length is closest to the card's own length wins -- but only if no
+    other pair is equally close. A tie means no window.
+    """
+
+    size = len(left_anchor)
+    left_hits = _occurrences(values, left_anchor)
+    if len(left_hits) == 1:
+        window_start = left_hits[0] + size
+        right_at = _unique_occurrence(values, right_anchor, window_start)
+        if right_at is not None and right_at - window_start <= span_tokens + _MAX_EXTRA_WINDOW_TOKENS:
+            return window_start, right_at, False
+    if not left_hits:
+        return None
+    candidates: list[tuple[int, int, int]] = []
+    for left_at in left_hits:
+        window_start = left_at + size
+        for right_at in _occurrences(values, right_anchor, window_start):
+            length = right_at - window_start
+            if length > span_tokens + _MAX_EXTRA_WINDOW_TOKENS:
+                break
+            candidates.append((abs(length - span_tokens), window_start, right_at))
+    if not candidates:
+        return None
+    candidates.sort()
+    if len(candidates) > 1 and candidates[0][0] == candidates[1][0]:
+        return None
+    _, window_start, right_at = candidates[0]
+    return window_start, right_at, len(candidates) > 1 or len(left_hits) > 1
 
 
 def anchored_third_asr_window(item: dict) -> dict | None:
@@ -119,15 +166,10 @@ def anchored_third_asr_window(item: dict) -> dict | None:
         for size in _ANCHOR_SIZES:
             if len(left_tokens) < size or len(right_tokens) < size:
                 continue
-            left_at = _unique_occurrence(values, left_tokens[-size:])
-            if left_at is None:
+            pair = _anchor_pair(values, left_tokens[-size:], right_tokens[:size], span_tokens)
+            if pair is None:
                 continue
-            window_start = left_at + size
-            right_at = _unique_occurrence(values, right_tokens[:size], window_start)
-            if right_at is None:
-                continue
-            if right_at - window_start > span_tokens + _MAX_EXTRA_WINDOW_TOKENS:
-                continue
+            window_start, right_at, disambiguated = pair
             if right_at == window_start:
                 text = ""
             else:
@@ -139,5 +181,6 @@ def anchored_third_asr_window(item: dict) -> dict | None:
                 "method": WINDOW_METHOD,
                 "anchor_source": source,
                 "anchor_tokens": size,
+                "disambiguated": disambiguated,
             }
     return None
