@@ -594,7 +594,8 @@ class TranscriberTests(unittest.TestCase):
             def post(url, *, headers, json, timeout):
                 requests_sent.append((url, headers, json, timeout))
                 if len(requests_sent) == 1:
-                    return _FakeResponse(_stt_response([(1.0, 2.0, " First chunk.")], language="en"))
+                    # Qwen3-ASR names the language ("english"); the hint is the ISO code.
+                    return _FakeResponse(_stt_response([(1.0, 2.0, " First chunk.")], language="english"))
                 return _FakeResponse(_stt_response([(3.0, 4.0, " Second chunk.")], language="en"))
 
             with (
@@ -624,7 +625,7 @@ class TranscriberTests(unittest.TestCase):
             for url, headers, body, timeout in requests_sent:
                 self.assertEqual(url, transcriber.STT_ENDPOINT)
                 self.assertEqual(headers["Authorization"], "Bearer test-whisper-key")
-                self.assertEqual(body["model"], "openai/whisper-large-v3")
+                self.assertEqual(body["model"], "qwen/qwen3-asr-1.7b")
                 self.assertNotIn("provider", body)
                 self.assertEqual(body["response_format"], "verbose_json")
                 self.assertEqual(body["timestamp_granularities"], ["word", "segment"])
@@ -653,7 +654,7 @@ class TranscriberTests(unittest.TestCase):
             self.assertEqual(uploaded[paths_for(episode_key)["whisper_text"]], "First chunk. Second chunk.")
             self.assertEqual(metadata["chunk_count"], 2)
             self.assertEqual(metadata["chunk_overlap_seconds"], 5)
-            self.assertEqual(metadata["deduplication"], "timestamp_midpoint_overlap_v3")
+            self.assertEqual(metadata["deduplication"], "timestamp_midpoint_overlap_v4")
             self.assertEqual(metadata["duration"], 15.0)
             self.assertEqual(metadata["language"], "en")
             self.assertEqual(metadata["segments"][0]["start"], 1.0)
@@ -820,6 +821,83 @@ class TranscriberTests(unittest.TestCase):
         self.assertEqual([w["word"] for w in segments[1]["words"]], [" three"])
         self.assertEqual(segments[1]["words"][0]["start"], 102.1)
         self.assertNotIn("probability", segments[0]["words"][0])
+
+    def test_small_backward_word_start_at_segment_join_is_clamped(self):
+        # Qwen3-ASR restarts a segment's first word ~0.02 s before the
+        # previous word's start; the parser clamps steps within tolerance.
+        payload = {
+            "segments": [
+                {"start": 0.0, "end": 2.0, "text": " one two", "avg_logprob": -0.1, "no_speech_prob": 0.0},
+                {"start": 2.0, "end": 4.0, "text": " three", "avg_logprob": -0.1, "no_speech_prob": 0.0},
+            ],
+            "words": [
+                {"word": " one", "start": 0.0, "end": 0.9},
+                {"word": " two", "start": 1.98, "end": 1.98},
+                {"word": " three", "start": 1.96, "end": 2.5},
+            ],
+        }
+        segments = transcriber._openrouter_segment_metadata(payload, offset_seconds=10.0)
+        words = [word for segment in segments for word in segment["words"]]
+        self.assertEqual([word["word"] for word in words], [" one", " two", " three"])
+        self.assertAlmostEqual(words[2]["start"], 11.98)
+        self.assertAlmostEqual(words[2]["end"], 12.5)
+        transcriber._validate_monotonic_timestamps(segments)
+
+    def test_large_backward_word_start_still_fails_closed(self):
+        payload = {
+            "segments": [{"start": 0.0, "end": 4.0, "text": " one two", "avg_logprob": -0.1, "no_speech_prob": 0.0}],
+            "words": [
+                {"word": " one", "start": 2.0, "end": 2.5},
+                {"word": " two", "start": 1.4, "end": 2.6},
+            ],
+        }
+        segments = transcriber._openrouter_segment_metadata(payload)
+        self.assertEqual(segments[0]["words"][1]["start"], 1.4)
+        with self.assertRaises(RuntimeError):
+            transcriber._validate_monotonic_timestamps(segments)
+
+    def test_segment_join_step_of_a_tenth_of_a_second_is_clamped(self):
+        # Synthetic segment-join case: one segment ends at 27.6 s while the
+        # next segment begins at 27.5 s.
+        payload = {
+            "segments": [
+                {"start": 20.0, "end": 27.5, "text": "the final stage example.", "avg_logprob": -0.1, "no_speech_prob": 0.0},
+                {"start": 27.5, "end": 30.0, "text": "Next words", "avg_logprob": -0.1, "no_speech_prob": 0.0},
+            ],
+            "words": [
+                {"word": "stage", "start": 26.88, "end": 27.2},
+                {"word": "example.", "start": 27.6, "end": 27.6},
+                {"word": "Next", "start": 27.5, "end": 28.3},
+                {"word": "words", "start": 28.3, "end": 28.46},
+            ],
+        }
+        segments = transcriber._openrouter_segment_metadata(payload)
+        transcriber._validate_monotonic_timestamps(segments)
+        words = [word for segment in segments for word in segment["words"]]
+        self.assertAlmostEqual(words[2]["start"], 27.6)
+
+    def test_words_without_leading_space_keep_word_boundaries_after_stitching(self):
+        # Qwen3-ASR words carry no leading space; segment text rebuilt from
+        # words during stitching must still separate words.
+        payload = {
+            "segments": [{"start": 0.0, "end": 3.0, "text": "What's up, everybody?", "avg_logprob": -0.1, "no_speech_prob": 0.0}],
+            "words": [
+                {"word": "What's", "start": 0.0, "end": 0.4},
+                {"word": "up,", "start": 0.4, "end": 0.8},
+                {"word": "everybody?", "start": 0.8, "end": 1.5},
+            ],
+        }
+        segments = transcriber._openrouter_segment_metadata(payload)
+        self.assertEqual([word["word"] for word in segments[0]["words"]], [" What's", " up,", " everybody?"])
+        rebuilt = transcriber._rebuild_segment_from_words(segments[0], segments[0]["words"])
+        self.assertEqual(rebuilt["text"], "What's up, everybody?")
+
+    def test_language_hint_uses_iso_codes(self):
+        self.assertEqual(transcriber._language_hint("english"), "en")
+        self.assertEqual(transcriber._language_hint(" English "), "en")
+        self.assertEqual(transcriber._language_hint("en"), "en")
+        self.assertIsNone(transcriber._language_hint("klingon"))
+        self.assertIsNone(transcriber._language_hint(None))
 
     def test_malformed_response_is_rejected(self):
         for payload in ({}, {"segments": [], "words": [{"word": " x", "start": 0, "end": 1}]},

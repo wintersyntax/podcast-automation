@@ -1,9 +1,9 @@
 """OpenRouter Whisper transcription with bounded-size midpoint-stitched chunks.
 
 TASK-125: each overlapping audio chunk is encoded as a small MP3 and sent to
-OpenRouter's transcription endpoint (``openai/whisper-large-v3``, one provider
-pinned by the API key's OpenRouter guardrail, ``verbose_json`` with word and
-segment timestamps). The response is
+OpenRouter's transcription endpoint (the manifest model, currently
+``qwen/qwen3-asr-1.7b``; one provider pinned by the API key's OpenRouter
+guardrail, ``verbose_json`` with word and segment timestamps). The response is
 converted into the same segment/word metadata the local Faster-Whisper
 producer used to write, so chunk stitching, timestamp validation and the
 compiler contract are unchanged. Every physical request is admitted through
@@ -72,6 +72,24 @@ WHISPER_CHUNK_SECONDS = CHUNK_SECONDS
 WHISPER_CHUNK_OVERLAP_SECONDS = CHUNK_OVERLAP_SECONDS
 
 TIMESTAMP_EPSILON = 1e-6
+# Qwen3-ASR aligns words per segment, so at a segment join the next segment's
+# first word can start before the previous word (observed 0.02 s and 0.1 s:
+# the previous segment's last word is placed at its end). Steps up to this
+# bound are a timestamp artifact, not reordered speech, so the parser clamps
+# them; anything larger is left for ``_validate_monotonic_timestamps`` to
+# reject (fail closed).
+WORD_START_BACKSTEP_TOLERANCE_SECONDS = 0.5
+# Some models report the detected language by name. Request hints use codes.
+LANGUAGE_NAME_CODES = {
+    "english": "en",
+    "german": "de",
+    "spanish": "es",
+    "french": "fr",
+    "italian": "it",
+    "portuguese": "pt",
+    "dutch": "nl",
+    "croatian": "hr",
+}
 # A chunk this long represents a meaningful blind spot. The threshold follows
 # the configured chunk size when deployments use shorter chunks, while still
 # allowing ordinary short trailing silence to remain empty.
@@ -432,6 +450,7 @@ def _openrouter_segment_metadata(
             }
         )
 
+    previous_word_start: float | None = None
     for raw in raw_words:
         if not isinstance(raw, dict) or not isinstance(raw.get("word"), str):
             raise ValueError("OpenRouter transcription word is malformed")
@@ -439,6 +458,20 @@ def _openrouter_segment_metadata(
         end = _optional_float(raw.get("end"))
         if start is None or end is None or end < start:
             raise ValueError("OpenRouter transcription word has invalid timestamps")
+        word = raw["word"]
+        if word and not word[0].isspace():
+            # Whisper words carry their leading space and segment text is
+            # rebuilt by joining words; Qwen3-ASR words have none.
+            word = " " + word
+        if (
+            previous_word_start is not None
+            and start < previous_word_start
+            and previous_word_start - start
+            <= WORD_START_BACKSTEP_TOLERANCE_SECONDS + TIMESTAMP_EPSILON
+        ):
+            start = previous_word_start
+            end = max(end, start)
+        previous_word_start = start
         if not segments:
             raise ValueError("OpenRouter transcription returned words without segments")
         midpoint = (start + end) / 2
@@ -450,7 +483,7 @@ def _openrouter_segment_metadata(
                 break
         owner["words"].append(
             {
-                "word": raw["word"],
+                "word": word,
                 "start": _offset_timestamp(start, offset_seconds),
                 "end": _offset_timestamp(end, offset_seconds),
             }
@@ -1043,12 +1076,26 @@ def _validate_monotonic_timestamps(
                 < previous_word_start
             ):
                 raise RuntimeError(
-                    "Whisper word timestamps are not monotonic."
+                    "Whisper word timestamps are not monotonic: "
+                    f"a word at {numeric_word_start:.2f} s starts "
+                    f"{previous_word_start - numeric_word_start:.2f} s "
+                    "before the previous word."
                 )
 
             previous_word_start = (
                 numeric_word_start
             )
+
+
+def _language_hint(value: object) -> str | None:
+    """Return an ISO-639-1 language hint from a response language, if known."""
+
+    if not isinstance(value, str):
+        return None
+    text = value.strip().lower()
+    if len(text) == 2 and text.isalpha():
+        return text
+    return LANGUAGE_NAME_CODES.get(text)
 
 
 def _audio_fingerprint(audio_path: Path) -> str:
@@ -1285,8 +1332,8 @@ def transcribe_audio(
                     usd_per_second=pricing.usd_per_second,
                 )
                 billed_usd += _actual_usd(response) or Decimal("0")
-                if detected_language is None and isinstance(response.get("language"), str):
-                    detected_language = response["language"]
+                if detected_language is None:
+                    detected_language = _language_hint(response.get("language"))
                 chunk_segments = _openrouter_segment_metadata(
                     response,
                     offset_seconds=chunk.start,

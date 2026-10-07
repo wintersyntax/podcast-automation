@@ -105,7 +105,7 @@ class WhisperProvenanceTests(unittest.TestCase):
 
         self.assertEqual(
             producer["model"],
-            {"id": "openai/whisper-large-v3", "provider": "deepinfra"},
+            {"id": "qwen/qwen3-asr-1.7b", "provider": "deepinfra"},
         )
         self.assertEqual(
             producer["engine"],
@@ -125,7 +125,7 @@ class WhisperProvenanceTests(unittest.TestCase):
             {
                 "chunk_seconds": 600,
                 "overlap_seconds": 5,
-                "stitch_method": "timestamp_midpoint_overlap_v3",
+                "stitch_method": "timestamp_midpoint_overlap_v4",
             },
         )
         self.assertEqual(

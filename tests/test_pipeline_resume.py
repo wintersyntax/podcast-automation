@@ -314,7 +314,7 @@ class PipelineResumeTests(unittest.TestCase):
             {
                 "schema_version": WHISPER_METADATA_SCHEMA_VERSION,
                 "source": WHISPER_METADATA_SOURCE,
-                "model": "openai/whisper-large-v3",
+                "model": "qwen/qwen3-asr-1.7b",
                 "producer": current_whisper_producer(),
                 "segments": [],
             }

@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "model": {
-    "id": "openai/whisper-large-v3",
+    "id": "qwen/qwen3-asr-1.7b",
     "provider": "deepinfra"
   },
   "engine": {
@@ -26,6 +26,6 @@
   "chunking": {
     "chunk_seconds": 600,
     "overlap_seconds": 5,
-    "stitch_method": "timestamp_midpoint_overlap_v3"
+    "stitch_method": "timestamp_midpoint_overlap_v4"
   }
 }

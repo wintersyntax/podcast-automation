@@ -1,8 +1,9 @@
 """Canonical Whisper producer identity and artifact provenance.
 
-TASK-125: the canonical Whisper source is produced by ``openai/whisper-large-v3``
-through OpenRouter's transcription endpoint, pinned to one provider, instead of
-a bundled local Faster-Whisper ``small`` model. The producer identity covers
+TASK-125: the canonical Whisper source is produced by the manifest model
+(``qwen/qwen3-asr-1.7b`` since the source benchmark; earlier
+``openai/whisper-large-v3``) through OpenRouter's transcription endpoint, pinned
+to one provider, instead of a bundled local Faster-Whisper ``small`` model. The producer identity covers
 every setting that changes the transcript (model, provider, request format,
 audio encoding and chunking), so artifacts from another producer -- including
 every earlier local Faster-Whisper artifact -- never match and are not reused.
