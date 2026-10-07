@@ -32,7 +32,7 @@ flowchart LR
 - **Humans** decide material transcript conflicts that remain unresolved.
 - **Google Cloud Storage** is the durable canonical artifact store; local files are working or derivative copies.
 
-When `PODCAST_KNOWLEDGE_WRITER_PRESET` is set, the writer receives the whole compiled transcript and returns a structured `knowledge-note-v3` note with topics, people and tag proposals. Python validates and renders the note, resolves tags, and builds frontmatter. Without that preset, the earlier summary, independent review and metadata chain remains available. Neither path can publish before its checks complete.
+The current knowledge-generation path uses a verified `PODCAST_KNOWLEDGE_WRITER_PRESET`. The writer receives the whole compiled transcript and returns a structured `knowledge-note-v3` note with topics, people and tag proposals. Python owns transcript-anchor and structure checks, unit conversion, tag resolution, Markdown rendering and frontmatter. Publication occurs only after those deterministic checks pass.
 
 ## Reliability model
 
