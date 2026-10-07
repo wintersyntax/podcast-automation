@@ -19,7 +19,7 @@ At a minimum, a real deployment needs:
 - Google Cloud credentials with narrowly scoped permissions;
 - a guarded OpenRouter credential for the Whisper producer;
 - Apple transcript acquisition configuration if that source is enabled;
-- reviewer/knowledge model configuration if AI-assisted stages are enabled;
+- a verified single-pass knowledge-writer preset for the current `knowledge-note-v3` path;
 - a Third-ASR credential if automatic review evidence prefetch is enabled;
 - a verified materiality-judge preset if materiality shadow/queue behavior is enabled.
 
