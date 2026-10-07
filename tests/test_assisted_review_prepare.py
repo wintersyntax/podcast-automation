@@ -20,7 +20,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import unittest
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from google.api_core.exceptions import NotFound, PreconditionFailed
 
@@ -171,7 +171,7 @@ class _PrepareTestCase(unittest.TestCase):
                 side_effect=lambda key: (self.record, 1),
             ),
             patch(
-                "podcast_engine.human_review.require_third_asr_budget_identity_reconciled"
+                "podcast_engine.human_review.ensure_fresh_third_asr_budget_identity"
             ),
             patch(
                 "podcast_engine.human_review.resolve_audio_model_pricing",
@@ -331,8 +331,8 @@ class BeginAssistedPreparationSuccessTests(_PrepareTestCase):
         self.assertEqual(session["session_id"], "fixed-session")
         self.assertEqual(session["selected_ids"], [1, 2])
         self.assertEqual(len(self.reserve_calls), 1)
-        self.mocks["require_third_asr_budget_identity_reconciled"].assert_called_once_with(
-            EPISODE_KEY, FINGERPRINT
+        self.mocks["ensure_fresh_third_asr_budget_identity"].assert_called_once_with(
+            EPISODE_KEY, FINGERPRINT, ANY
         )
         reserved_ids = {r["attempt_id"] for r in self.reserve_calls[0]}
         self.assertEqual(
@@ -393,7 +393,7 @@ class BeginAssistedPreparationCacheMixtureTests(_PrepareTestCase):
 
         self.assertEqual(self.reserve_calls, [])
         self.assertEqual(self.pricing_calls, 0)
-        self.mocks["require_third_asr_budget_identity_reconciled"].assert_not_called()
+        self.mocks["ensure_fresh_third_asr_budget_identity"].assert_not_called()
         self.assertEqual(session["items"]["1"]["state"], "prepared")
 
     def test_replay_with_same_session_id_and_selection_is_a_no_op(self):

@@ -196,6 +196,8 @@ WRITER_PATHS = {
         f"{ROOT}/summary/metadata.json",
         f"{ROOT}/summary/summary.md",
         AI_BUDGET_LEDGER_PATH,
+        BUDGET_IDENTITY_RECONCILIATION_PATH,
+        THIRD_ASR_CLAIM_PATH,
         "knowledge/tags/registry-v1.json",
     ),
     APPLE_INGEST_PRINCIPAL: (
@@ -230,6 +232,8 @@ READER_PATHS = {
         f"{ROOT}/summary/metadata.json",
         f"{ROOT}/summary/summary.md",
         AI_BUDGET_LEDGER_PATH,
+        BUDGET_IDENTITY_RECONCILIATION_PATH,
+        THIRD_ASR_CLAIM_PATH,
         "knowledge/tags/registry-v1.json",
     ),
     APPLE_INGEST_PRINCIPAL: (
@@ -393,7 +397,7 @@ class WhisperProducerIamPolicyTests(unittest.TestCase):
                     with self.subTest(principal=principal, permission=permission, object_name=object_name):
                         self.assertTrue(is_allowed(principal, permission, object_name))
                     positive_cases += 1
-        self.assertEqual(positive_cases, 52)
+        self.assertEqual(positive_cases, 56)
 
     def test_all_audited_reader_paths_are_allowed(self):
         positive_cases = 0
@@ -402,23 +406,24 @@ class WhisperProducerIamPolicyTests(unittest.TestCase):
                 with self.subTest(principal=principal, object_name=object_name):
                     self.assertTrue(is_allowed(principal, "storage.objects.get", object_name))
                 positive_cases += 1
-        self.assertEqual(positive_cases, 33)
+        self.assertEqual(positive_cases, 35)
 
-    def test_budget_identity_reconciliation_marker_is_review_read_only(self):
-        self.assertTrue(
-            is_allowed(
-                REVIEW_PRINCIPAL,
-                "storage.objects.get",
-                BUDGET_IDENTITY_RECONCILIATION_PATH,
-            )
-        )
-        for permission in ("storage.objects.create", "storage.objects.delete"):
-            self.assertFalse(
-                is_allowed(
-                    REVIEW_PRINCIPAL,
-                    permission,
-                    BUDGET_IDENTITY_RECONCILIATION_PATH,
+    def test_budget_identity_reconciliation_marker_is_review_and_worker_only(self):
+        # TASK-126: Human Review and the Worker-side Third-ASR prefetch may
+        # create the marker for a generation proven clean by named reads;
+        # Apple ingest never touches it, and listing stays forbidden.
+        for principal in (REVIEW_PRINCIPAL, WORKER_PRINCIPAL):
+            for permission in ("storage.objects.get", "storage.objects.create"):
+                self.assertTrue(
+                    is_allowed(
+                        principal,
+                        permission,
+                        BUDGET_IDENTITY_RECONCILIATION_PATH,
+                    )
                 )
+        for permission in ("storage.objects.get", "storage.objects.create"):
+            self.assertFalse(
+                is_allowed(APPLE_INGEST_PRINCIPAL, permission, BUDGET_IDENTITY_RECONCILIATION_PATH)
             )
         self.assertIn("storage.objects.list", FORBIDDEN_PERMISSIONS)
 
@@ -513,7 +518,7 @@ class WhisperProducerIamPolicyTests(unittest.TestCase):
         second_emission = generate_physical_iam_bindings()
 
         self.assertEqual(first_emission, second_emission)
-        self.assertEqual(len(first_emission), 18)
+        self.assertEqual(len(first_emission), 21)
         for binding in first_emission:
             expression = binding.cel_expression()
             with self.subTest(principal=binding.principal, kind=binding.kind, expression=expression):
@@ -636,6 +641,8 @@ class WhisperProducerIamPolicyTests(unittest.TestCase):
                     "summary_review",
                     "stalled_email",
                     "ai_budget",
+                    "budget_identity_reconciliation",
+                    "third_asr_claim",
                 }
                 for pattern in binding.patterns
             )
