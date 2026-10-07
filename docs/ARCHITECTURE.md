@@ -13,7 +13,7 @@ flowchart LR
     GCS --> Compiler[Transcript compiler]
     Compiler --> Resolver[Bounded resolver]
     Resolver --> Evidence[Third-ASR + materiality evidence]
-    Evidence -->|material ambiguity| Review[Human Review]
+    Evidence -->|group + propose, never decide| Review["Human Review<br/>Quick cards · Settled · Full review"]
     Review -->|decision + recompile| Worker
     Compiler -->|writer configured| Writer[Single-pass structured note writer]
     Writer --> Checks[Deterministic note checks]
