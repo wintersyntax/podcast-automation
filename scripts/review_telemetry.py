@@ -42,7 +42,7 @@ if str(REPO_ROOT) not in sys.path:
 from compiler.assisted_review import derive_assisted_state
 
 
-DEFAULT_BUCKET = "podcast-worker-data-506417"
+DEFAULT_BUCKET = "YOUR_GCS_BUCKET"
 REPORT_SCHEMA_VERSION = 1
 SOURCE_CHOICES = ("apple", "whisper", "third", "custom", "<unknown>")
 UNKNOWN = "<unknown>"

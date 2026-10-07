@@ -13,7 +13,7 @@ from .episode_identity import episode_key_for
 
 
 BUCKET_NAME = os.environ.get(
-    "PODCAST_GCS_BUCKET", "podcast-worker-data-506417"
+    "PODCAST_GCS_BUCKET", "YOUR_GCS_BUCKET"
 ).removeprefix("gs://").strip("/")
 STORAGE_FILE = "episodes.json"
 

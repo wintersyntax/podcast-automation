@@ -17,7 +17,7 @@ from podcast_engine.notifications import (
     review_tier_summary,
 )
 
-EPISODE = {"episode_key": "a" * 24, "podcast": "Iron Culture", "title": "Ep 1"}
+EPISODE = {"episode_key": "a" * 24, "podcast": "Example Podcast", "title": "Ep 1"}
 KEY_ENV = {"PODCAST_REVIEW_ASR_API_KEY": "third-key", "PODCAST_WORKER_THIRD_ASR_PREFETCH": "1"}
 
 

@@ -7,38 +7,32 @@ import unittest
 from compiler.third_asr_window import WINDOW_METHOD, anchored_third_asr_window
 
 
-# Real production shape (John Jewett #357): the clip transcript spans far more
-# than the card, so inserting it whole duplicated the surrounding sentences.
-JEWETT_357 = {
-    "apple_text": "errors that will play. So",
+# Synthetic long-clip shape: the Third-ASR transcript spans much more
+# context than the card, so inserting the whole clip would duplicate surrounding
+# words. The fixture is invented for this public repository.
+SYNTHETIC_LONG_CLIP = {
+    "apple_text": "errors that can happen. So",
     "apple_context": (
-        "and you never know what is the best look for the stage, as in the "
-        "competitors you're up against, the lighting, what the judges want to "
-        "see. There's lots of errors that will play. So thinking about that as "
-        "more of a like, not a bullseye, but like an acceptable range of a look, "
-        "I think it is beautiful. One question I have for you"
+        "during a rehearsal there can be errors that can happen. So thinking "
+        "about that as a range helps the team plan the next attempt"
     ),
-    "whisper_text": "various other places so that",
+    "whisper_text": "other possibilities so that",
     "whisper_context": (
-        "you never know what's the best look for the stage as in the competitors "
-        "you're up against the lighting what the judges want to see there's lots "
-        "of various other places so that thinking about that as more of a like "
-        "not a bullseye"
+        "during a rehearsal there can be other possibilities so that thinking "
+        "about that as a range helps the team plan"
     ),
     "third_asr": {
         "text": (
-            "Look for the stage, as in the competitors you're up against, the "
-            "lighting, what the judges want to see. There's lots of areas of "
-            "play. So thinking about that as more of a, like, not a bullseye, "
-            "but like an acceptable range of a look, I think."
+            "In the rehearsal there can be areas of play. So thinking about "
+            "that as a range helps the team plan."
         )
     },
 }
 
 
 class AnchoredThirdAsrWindowTests(unittest.TestCase):
-    def test_production_clip_yields_only_the_card_words(self):
-        window = anchored_third_asr_window(dict(JEWETT_357))
+    def test_long_clip_yields_only_the_card_words(self):
+        window = anchored_third_asr_window(dict(SYNTHETIC_LONG_CLIP))
 
         self.assertIsNotNone(window)
         self.assertEqual(window["text"], "areas of play. So")
@@ -47,11 +41,11 @@ class AnchoredThirdAsrWindowTests(unittest.TestCase):
 
     def test_missing_or_blank_evidence_has_no_window(self):
         for evidence in (None, {}, {"text": "  "}, "text"):
-            item = dict(JEWETT_357, third_asr=evidence)
+            item = dict(SYNTHETIC_LONG_CLIP, third_asr=evidence)
             self.assertIsNone(anchored_third_asr_window(item))
 
     def test_ambiguous_anchor_fails_closed(self):
-        item = dict(JEWETT_357)
+        item = dict(SYNTHETIC_LONG_CLIP)
         item["third_asr"] = {
             "text": (
                 "want to see. There's lots of areas of play. So thinking "
@@ -62,14 +56,14 @@ class AnchoredThirdAsrWindowTests(unittest.TestCase):
         self.assertIsNone(anchored_third_asr_window(item))
 
     def test_window_far_longer_than_the_span_fails_closed(self):
-        item = dict(JEWETT_357)
+        item = dict(SYNTHETIC_LONG_CLIP)
         filler = " ".join(["word"] * 40)
         item["third_asr"] = {"text": f"There's lots of {filler}. So thinking about that"}
         item["whisper_context"] = "unrelated words only"
         self.assertIsNone(anchored_third_asr_window(item))
 
     def test_falls_back_to_whisper_context_anchors(self):
-        item = dict(JEWETT_357)
+        item = dict(SYNTHETIC_LONG_CLIP)
         item["apple_context"] = "context that does not contain the span"
         window = anchored_third_asr_window(item)
         self.assertIsNotNone(window)
@@ -130,7 +124,7 @@ class AnchoredThirdAsrWindowTests(unittest.TestCase):
         self.assertIsNone(anchored_third_asr_window(item))
 
     def test_unambiguous_window_is_not_marked_disambiguated(self):
-        window = anchored_third_asr_window(dict(JEWETT_357))
+        window = anchored_third_asr_window(dict(SYNTHETIC_LONG_CLIP))
         self.assertFalse(window["disambiguated"])
 
 

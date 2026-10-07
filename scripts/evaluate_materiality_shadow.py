@@ -35,7 +35,7 @@ if str(REPO_ROOT) not in sys.path:
 from compiler.materiality import materiality_inputs  # noqa: E402
 from podcast_engine.materiality_shadow import EVIDENCE_KEY  # noqa: E402
 
-DEFAULT_BUCKET = "podcast-worker-data-506417"
+DEFAULT_BUCKET = "YOUR_GCS_BUCKET"
 DEFAULT_OUTPUT = REPO_ROOT / "var" / "eval" / "materiality-shadow"
 
 

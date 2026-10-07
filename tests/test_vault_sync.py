@@ -26,8 +26,8 @@ class VaultSyncTests(unittest.TestCase):
         return {
             "id": "episode-1",
             "episode_key": "episode-1",
-            "podcast": "Iron / Culture: Strength",
-            "title": "Ep 386: Caffeine / Creatine?",
+            "podcast": "Example / Strength: Podcast",
+            "title": "Ep 12: Training / Recovery?",
             "published": "Thu, 20 Aug 2026 14:58:00 +0000",
             "status": {"summary": {"state": "ready"}},
         }
@@ -48,8 +48,8 @@ class VaultSyncTests(unittest.TestCase):
 
             self.assertEqual(
                 destination.relative_to(Path(directory)).as_posix(),
-                "Podcasts/Strength/Iron Culture Strength/"
-                "2026-08-20 - Ep 386 Caffeine Creatine.md",
+                "Podcasts/Strength/Example Strength Podcast/"
+                "2026-08-20 - Ep 12 Training Recovery.md",
             )
 
     def test_existing_identical_summary_is_a_no_op(self):
