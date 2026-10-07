@@ -59,7 +59,7 @@ APPLE_TRANSCRIPT_LATE_DAYS = 10
 
 
 DEFAULT_REVIEW_URL = (
-    "https://review.podcastops.link"
+    "https://review.example.com"
 )
 
 PODCAST_REVIEW_URL = (
