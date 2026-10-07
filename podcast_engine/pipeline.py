@@ -43,6 +43,8 @@ from .notifications import (
     send_slack_summary_ready_notification,
 )
 from .observability import emit_event
+from .materiality_shadow import run_materiality_shadow
+from .third_asr_prefetch import prefetch_third_asr
 from .transcriber import transcribe_audio
 
 
@@ -382,6 +384,61 @@ def _apple_acquisition_due(
     return current >= eligible_at
 
 
+def _prefetch_third_asr_before_notification(
+    episode: dict, review_items: list | None
+) -> dict:
+    """Run the TASK-126 Worker prefetch; any failure degrades to no tiers."""
+
+    started = time.time()
+    try:
+        summary = prefetch_third_asr(episode, review_items=review_items)
+    except Exception as error:  # noqa: BLE001 - notification must still go out
+        emit_event(
+            "third_asr_prefetch_failed",
+            "Third-ASR prefetch failed before the review notification",
+            severity="WARNING",
+            episode_key=episode.get("episode_key"),
+            error_type=type(error).__name__,
+        )
+        return {"tiers": None}
+    emit_event(
+        "third_asr_prefetch",
+        "Third-ASR prefetch before the review notification",
+        severity="INFO",
+        episode_key=episode.get("episode_key"),
+        seconds=round(time.time() - started, 2),
+        **{key: value for key, value in summary.items() if key != "tiers"},
+        tiers=summary.get("tiers"),
+    )
+    return summary
+
+
+def _materiality_shadow_before_notification(episode: dict) -> dict:
+    """Run the TASK-133 shadow materiality filter; never blocks anything."""
+
+    started = time.time()
+    try:
+        summary = run_materiality_shadow(episode)
+    except Exception as error:  # noqa: BLE001 - notification must still go out
+        emit_event(
+            "materiality_shadow_failed",
+            "Shadow materiality filter failed before the review notification",
+            severity="WARNING",
+            episode_key=episode.get("episode_key"),
+            error_type=type(error).__name__,
+        )
+        return {"status": "failed"}
+    emit_event(
+        "materiality_shadow",
+        "Shadow materiality filter before the review notification",
+        severity="INFO",
+        episode_key=episode.get("episode_key"),
+        seconds=round(time.time() - started, 2),
+        **summary,
+    )
+    return summary
+
+
 def _apple_transcript_late_notification_due(
     episode: dict,
     now: datetime | None = None,
@@ -688,6 +745,16 @@ def resume_tracked_episode(
         if compiled[
             "review_required"
         ]:
+            # TASK-126: fetch the third voice for tier-B/C cards before the
+            # reviewer is notified, so the email and the first page view
+            # already show settled tiers. Best-effort; never blocks.
+            prefetch = _prefetch_third_asr_before_notification(
+                episode, compiled.get("review")
+            )
+            tiers = prefetch.get("tiers")
+            # TASK-133: record (shadow only) which cards the materiality
+            # filter would have settled; the reviewer still sees every card.
+            _materiality_shadow_before_notification(episode)
             if compiler_status != "review_required":
                 _log_human_review_required(
                     episode,
@@ -701,11 +768,13 @@ def resume_tracked_episode(
                     triage_unavailable=_triage_unavailable_count(
                         compiled.get("review")
                     ),
+                    tiers=tiers,
                 )
                 send_email_review_notification(
                     episode,
                     compiled["review_required"],
                     PODCAST_REVIEW_URL,
+                    tiers=tiers,
                 )
             elif previous_review is not None:
                 review = compiled["review"]
@@ -728,6 +797,7 @@ def resume_tracked_episode(
                         len(previous_review),
                         len(review),
                         PODCAST_REVIEW_URL,
+                        tiers=tiers,
                     )
 
             return {

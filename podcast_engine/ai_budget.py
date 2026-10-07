@@ -120,6 +120,9 @@ STAGE_NOTE_WRITER = "note_writer"
 # downloaded audio's sha256 fingerprint (same shape and cap semantics) rather
 # than the Apple/Whisper source-generation fingerprint.
 STAGE_WHISPER_TRANSCRIPTION = "whisper_transcription"
+# TASK-133: the shadow-mode materiality judge. Optional evidence like Third
+# ASR, so it is never a protected downstream stage.
+STAGE_MATERIALITY = "materiality"
 
 AI_BUDGET_STAGE_IDS = frozenset(
     {
@@ -131,6 +134,7 @@ AI_BUDGET_STAGE_IDS = frozenset(
         STAGE_METADATA,
         STAGE_SUMMARY_REVIEW,
         STAGE_NOTE_WRITER,
+        STAGE_MATERIALITY,
     }
 )
 
@@ -663,6 +667,72 @@ def require_third_asr_budget_identity_reconciled(
     return marker
 
 
+RUNTIME_RECONCILIATION_BASIS = "runtime_named_read_v1"
+
+
+def _third_asr_consumption_total(ledger: dict) -> Decimal:
+    total = Decimal("0")
+    for attempt in ledger["attempts"].values():
+        if not attempt.get("third_asr"):
+            continue
+        if attempt["state"] == "settled":
+            total += Decimal(attempt["settled_usd"])
+        elif attempt["state"] in {"uncertain", "reserved"}:
+            total += Decimal(attempt["reserved_usd"])
+    return total
+
+
+def ensure_fresh_third_asr_budget_identity(
+    episode_key: str, source_fingerprint: str, input_fingerprint: object
+) -> dict:
+    """Admit paid Third ASR for a source generation without operator help (TASK-126).
+
+    The TASK-109 gate exists because pre-fix writers keyed direct Third-ASR
+    spend by the review input fingerprint. Such legacy spend can only sit in
+    the ledger named by this generation's input fingerprint, which runtime
+    code can read by exact name. When that ledger is absent or carries no
+    Third-ASR spend, nothing needs carrying over, so an empty marker is
+    created (create-only) with ``basis`` recording this named-read proof.
+    Any legacy Third-ASR spend still requires the operator reconciliation,
+    and an existing marker is never changed here.
+    """
+
+    marker, _ = _load_third_asr_budget_reconciliation(episode_key, source_fingerprint)
+    if marker is None:
+        checked: str | None = None
+        if (
+            isinstance(input_fingerprint, str)
+            and _SOURCE_FINGERPRINT.fullmatch(input_fingerprint)
+            and input_fingerprint != source_fingerprint
+        ):
+            legacy, legacy_generation = _load_ledger_with_generation(
+                episode_key, input_fingerprint
+            )
+            if legacy_generation is not None and _third_asr_consumption_total(legacy) > 0:
+                raise BudgetIdentityReconciliationRequired(
+                    "This generation has input-keyed Third-ASR spend; run the "
+                    "operator reconciliation before paid admission"
+                )
+            checked = input_fingerprint
+        payload = {
+            "schema_version": THIRD_ASR_BUDGET_RECONCILIATION_SCHEMA_VERSION,
+            "policy_version": THIRD_ASR_BUDGET_IDENTITY_POLICY_VERSION,
+            "episode_key": episode_key,
+            "source_fingerprint": source_fingerprint,
+            "reconciled_at": now_iso(),
+            "candidates": [],
+            "basis": RUNTIME_RECONCILIATION_BASIS,
+            "checked_input_fingerprint": checked,
+        }
+        try:
+            _save_third_asr_budget_reconciliation(
+                episode_key, source_fingerprint, payload, if_generation_match=None
+            )
+        except PreconditionFailed:
+            pass  # Another request created the marker first; validate it below.
+    return require_third_asr_budget_identity_reconciled(episode_key, source_fingerprint)
+
+
 def reconcile_third_asr_budget_identity(
     episode_key: str,
     source_fingerprint: str,
@@ -1163,7 +1233,10 @@ def settle_budget_attempt(
     )
 
 
-WHISPER_INTEGRITY_RECONCILIABLE_STAGES = frozenset({STAGE_WHISPER_TRANSCRIPTION})
+# TASK-126: Third-ASR clips with a fractional duration were billed in whole
+# seconds above their exact-duration reservation; those overruns are
+# reconcilable the same way as the TASK-125 Whisper overruns.
+WHISPER_INTEGRITY_RECONCILIABLE_STAGES = frozenset({STAGE_WHISPER_TRANSCRIPTION, STAGE_THIRD_ASR})
 
 
 def inventory_budget_integrity_failures(episode_key: str) -> list[dict]:
@@ -1206,10 +1279,12 @@ def reconcile_whisper_integrity_failure(
     actual_usd: Decimal,
     reason: str,
 ) -> dict:
-    """Settle one Whisper over-reservation at its recorded actual cost (TASK-125).
+    """Settle one Whisper or Third-ASR over-reservation at its recorded actual cost.
 
-    A Whisper transcription ledger is keyed by the audio fingerprint, so an
-    integrity failure there blocks only that episode's re-transcription. The
+    TASK-125: a Whisper transcription ledger is keyed by the audio
+    fingerprint, so an integrity failure there blocks only that episode's
+    re-transcription. TASK-126: a Third-ASR overrun (a fractional clip billed
+    in whole seconds) blocks the episode generation's ledger until settled. The
     operator must restate the exact recorded attempt and actual cost; any
     mismatch, another stage, or a non-uncertain attempt fails closed. The
     attempt becomes settled at the provider-reported actual cost, and the
@@ -1231,7 +1306,9 @@ def reconcile_whisper_integrity_failure(
             raise BudgetLedgerError("stated actual cost does not match the recorded integrity failure")
         attempt = _existing_attempt(ledger, attempt_id)
         if attempt.get("stage") not in WHISPER_INTEGRITY_RECONCILIABLE_STAGES:
-            raise BudgetLedgerError("only Whisper transcription integrity failures are reconcilable here")
+            raise BudgetLedgerError(
+                "only Whisper transcription and Third-ASR integrity failures are reconcilable here"
+            )
         if attempt["state"] != "uncertain":
             raise BudgetLedgerError("the failed attempt is not in the uncertain state")
 

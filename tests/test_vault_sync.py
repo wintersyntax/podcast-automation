@@ -1,3 +1,4 @@
+import errno
 import io
 import subprocess
 import tempfile
@@ -26,7 +27,7 @@ class VaultSyncTests(unittest.TestCase):
             "id": "episode-1",
             "episode_key": "episode-1",
             "podcast": "Example / Strength: Podcast",
-            "title": "Ep 386: Caffeine / Creatine?",
+            "title": "Ep 12: Training / Recovery?",
             "published": "Thu, 20 Aug 2026 14:58:00 +0000",
             "status": {"summary": {"state": "ready"}},
         }
@@ -48,7 +49,7 @@ class VaultSyncTests(unittest.TestCase):
             self.assertEqual(
                 destination.relative_to(Path(directory)).as_posix(),
                 "Podcasts/Strength/Example Strength Podcast/"
-                "2026-08-20 - Ep 386 Caffeine Creatine.md",
+                "2026-08-20 - Ep 12 Training Recovery.md",
             )
 
     def test_existing_identical_summary_is_a_no_op(self):
@@ -110,6 +111,118 @@ class VaultSyncTests(unittest.TestCase):
             self.assertEqual(actual, destination)
             self.assertTrue(wrote)
             self.assertEqual(destination.read_bytes(), changed)
+
+    def test_deadlocked_destination_read_replaces_canonical_note_then_no_ops(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            destination = destination_for_episode(
+                self._episode(), root, Path("Podcasts")
+            )
+            destination.parent.mkdir(parents=True)
+            destination.write_bytes(b"old")
+
+            with patch(
+                "macos_agent.vault_sync.download_gcs_bytes",
+                return_value=SUMMARY,
+            ), patch.object(
+                Path,
+                "read_bytes",
+                side_effect=OSError(errno.EDEADLK, "Resource deadlock avoided"),
+            ):
+                actual, wrote = export_vault_summary(
+                    self._episode(),
+                    vault_root=root,
+                    vault_subdir=Path("Podcasts"),
+                )
+
+            self.assertEqual(actual, destination)
+            self.assertTrue(wrote)
+            self.assertEqual(destination.read_bytes(), SUMMARY)
+            before_mtime = destination.stat().st_mtime_ns
+
+            with patch(
+                "macos_agent.vault_sync.download_gcs_bytes",
+                return_value=SUMMARY,
+            ):
+                _, wrote_again = export_vault_summary(
+                    self._episode(),
+                    vault_root=root,
+                    vault_subdir=Path("Podcasts"),
+                )
+
+            self.assertFalse(wrote_again)
+            self.assertEqual(destination.stat().st_mtime_ns, before_mtime)
+
+    def test_other_read_error_preserves_existing_note(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            destination = destination_for_episode(
+                self._episode(), root, Path("Podcasts")
+            )
+            destination.parent.mkdir(parents=True)
+            destination.write_bytes(b"old")
+
+            with patch(
+                "macos_agent.vault_sync.download_gcs_bytes",
+                return_value=SUMMARY,
+            ), patch.object(
+                Path,
+                "read_bytes",
+                side_effect=OSError(errno.EACCES, "Permission denied"),
+            ):
+                with self.assertRaises(OSError) as error:
+                    export_vault_summary(
+                        self._episode(),
+                        vault_root=root,
+                        vault_subdir=Path("Podcasts"),
+                    )
+
+            self.assertEqual(error.exception.errno, errno.EACCES)
+            self.assertEqual(destination.read_bytes(), b"old")
+
+    def test_failed_replacement_preserves_note_and_signals_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            destination = destination_for_episode(
+                self._episode(), root, Path("Podcasts")
+            )
+            destination.parent.mkdir(parents=True)
+            destination.write_bytes(b"old")
+
+            with patch(
+                "macos_agent.vault_sync.load_repo_env"
+            ), patch(
+                "macos_agent.vault_sync.vault_root_from_env",
+                return_value=root,
+            ), patch(
+                "macos_agent.vault_sync.vault_subdir_from_env",
+                return_value=Path("Podcasts"),
+            ), patch(
+                "macos_agent.vault_sync.load_episodes",
+                return_value=[self._episode()],
+            ), patch(
+                "macos_agent.vault_sync.download_gcs_bytes",
+                return_value=SUMMARY,
+            ), patch.object(
+                Path,
+                "read_bytes",
+                side_effect=OSError(errno.EDEADLK, "Resource deadlock avoided"),
+            ), patch(
+                "macos_agent.vault_sync.os.replace",
+                side_effect=OSError(errno.EBUSY, "Device or resource busy"),
+            ), patch(
+                "macos_agent.vault_sync.send_vault_sync_heartbeat"
+            ) as heartbeat:
+                with self.assertRaises(OSError) as error:
+                    main(["--all-ready"])
+
+            self.assertEqual(error.exception.errno, errno.EBUSY)
+            self.assertEqual(destination.read_bytes(), b"old")
+            self.assertEqual(
+                list(destination.parent.glob(f".{destination.name}.*.tmp")),
+                [],
+            )
+            heartbeat.assert_called_once_with(failed=True)
 
     def test_missing_vault_environment_is_a_clear_local_error(self):
         with self.assertRaisesRegex(
@@ -175,6 +288,28 @@ class VaultSyncTests(unittest.TestCase):
         self.assertIn("--show-error", command)
         self.assertIn(heartbeat_url, command)
 
+    def test_failure_heartbeat_uses_fail_endpoint_without_logging_url(self):
+        heartbeat_url = (
+            "https://hc-ping.com/secret-vault-check?source=macos"
+        )
+        output = io.StringIO()
+
+        with patch(
+            "macos_agent.vault_sync.subprocess.run",
+            return_value=subprocess.CompletedProcess(args=[], returncode=0),
+        ) as run, redirect_stdout(output):
+            sent = send_vault_sync_heartbeat(
+                {"PODCAST_VAULT_SYNC_HEARTBEAT_URL": heartbeat_url},
+                failed=True,
+            )
+
+        self.assertTrue(sent)
+        self.assertEqual(
+            run.call_args.args[0][-1],
+            "https://hc-ping.com/secret-vault-check/fail?source=macos",
+        )
+        self.assertNotIn("secret-vault-check", output.getvalue())
+
     def test_heartbeat_failure_is_secret_safe(self):
         heartbeat_url = (
             "https://hc-ping.com/"
@@ -233,7 +368,7 @@ class VaultSyncTests(unittest.TestCase):
         self.assertEqual(result, 0)
         heartbeat.assert_called_once_with()
 
-    def test_failed_all_ready_run_sends_no_success_heartbeat(self):
+    def test_failed_all_ready_run_sends_failure_signal(self):
         with patch(
             "macos_agent.vault_sync.load_repo_env"
         ), patch(
@@ -251,7 +386,7 @@ class VaultSyncTests(unittest.TestCase):
             result = main(["--all-ready"])
 
         self.assertEqual(result, 2)
-        heartbeat.assert_not_called()
+        heartbeat.assert_called_once_with(failed=True)
 
     def test_heartbeat_failure_does_not_fail_successful_vault_sync(self):
         with patch(

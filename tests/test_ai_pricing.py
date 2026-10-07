@@ -540,6 +540,13 @@ class DeriveAudioReservationUsdTests(unittest.TestCase):
         )
         self.assertEqual(reservation, Decimal("0.0185"))
 
+    def test_fractional_duration_is_billed_as_whole_seconds(self):
+        reservation = derive_audio_reservation_usd(
+            max_billable_seconds=Decimal("15.6"),
+            usd_per_second=Decimal("0.000075"),
+        )
+        self.assertEqual(reservation, Decimal("16") * Decimal("0.000075"))
+
     def test_rejects_non_positive_duration(self):
         with self.assertRaises(ValueError):
             derive_audio_reservation_usd(

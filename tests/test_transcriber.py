@@ -1,5 +1,7 @@
+import contextlib
 from contextlib import contextmanager
 from decimal import Decimal
+import io
 import json
 import tempfile
 import unittest
@@ -766,12 +768,28 @@ class TranscriberTests(unittest.TestCase):
         self.assertEqual(payload["text"], " ok")
         self.assertEqual(sleeps, [7.0, 120.0, 60.0])
 
+    def test_rate_limit_log_names_the_reason_without_the_key(self):
+        limited = _FakeResponse(
+            {"error": {"message": "Rate limit exceeded:\n upstream   provider busy", "code": 429}},
+            status=429,
+            headers={"Retry-After": "3"},
+        )
+        ok = _FakeResponse(_stt_response([(0.0, 1.0, " ok")]))
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            payload, _budget, sleeps = self._chunk_with_responses([limited, ok])
+        self.assertEqual(payload["text"], " ok")
+        self.assertEqual(sleeps, [3.0])
+        self.assertIn("[Rate limit exceeded: upstream provider busy; Retry-After]", output.getvalue())
+        self.assertNotIn("Bearer", output.getvalue())
+
     def test_persistent_rate_limit_fails_after_the_bounded_attempts(self):
         responses = [_FakeResponse({}, status=429) for _ in range(transcriber.RATE_LIMIT_ATTEMPTS)]
         error, budget, sleeps = self._chunk_with_responses(responses)
         self.assertIsInstance(error, RuntimeError)
         self.assertIn("HTTP 429", str(error))
-        self.assertEqual(sleeps, [15.0, 30.0, 60.0, 60.0, 60.0])
+        self.assertEqual(sleeps, [15.0, 30.0, 60.0, 120.0, 120.0, 120.0, 120.0])
+        self.assertLessEqual(sum(sleeps), 600.0)
         self.assertEqual(budget["reserve"].call_count, transcriber.RATE_LIMIT_ATTEMPTS)
         self.assertEqual(budget["uncertain"].call_count, transcriber.RATE_LIMIT_ATTEMPTS)
         budget["settle"].assert_not_called()

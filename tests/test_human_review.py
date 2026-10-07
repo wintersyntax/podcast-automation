@@ -429,7 +429,7 @@ class HumanReviewTests(unittest.TestCase):
             "severity": "Needs review",
             "reason": "Compiler requires human review",
         })
-        self.assertEqual(body["progress"], {"total": 1, "reviewed": 0, "remaining": 1, "assisted_unprepared": 0, "triage_unavailable": 0})
+        self.assertEqual(body["progress"], {"total": 1, "reviewed": 0, "remaining": 1, "assisted_unprepared": 0, "triage_unavailable": 0, "tiers": {"A": 0, "B": 1, "C": 0}, "materiality": {"settled": 0, "sample": 0, "click_one": 0, "proposal": 0, "full": 1}})
 
     def test_review_progress_counts_cards_with_unavailable_triage(self):
         # TASK-123: a silent whole-run triage outage must be visible in the UI.

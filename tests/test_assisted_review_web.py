@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from podcast_engine.ai_budget import (
     BudgetAdmissionError,
@@ -113,13 +113,13 @@ class AssistedPrepareWebTests(unittest.TestCase):
         self.assertEqual(budget['live_reservations'], 0.18)
         self.assertEqual(budget['headroom_usd'], 1.42)
         with patch('podcast_engine.human_review.load_review_record_with_generation', return_value=(record, 1)), patch(
-            'podcast_engine.human_review.clip_window', return_value={'duration': 1}
+            'podcast_engine.human_review.review_clip_window', return_value={'duration': 1}
         ), patch('podcast_engine.human_review.third_asr_cache_key', return_value='uncached'), patch(
-            'podcast_engine.human_review.require_third_asr_budget_identity_reconciled', side_effect=ValueError('gate probe')
+            'podcast_engine.human_review.ensure_fresh_third_asr_budget_identity', side_effect=ValueError('gate probe')
         ) as gate:
             with self.assertRaisesRegex(ValueError, 'gate probe'):
                 ensure_third_asr({'episode_key': episode_key}, 5)
-        gate.assert_called_once_with(episode_key, source_fingerprint)
+        gate.assert_called_once_with(episode_key, source_fingerprint, ANY)
 
     def test_assisted_prepare_defaults_session_id_to_none(self):
         with (

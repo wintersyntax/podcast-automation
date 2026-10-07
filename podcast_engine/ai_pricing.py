@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_CEILING, Decimal, InvalidOperation
 import hashlib
 import math
 from typing import Callable
@@ -622,7 +622,10 @@ def derive_audio_reservation_usd(
 
     Uses the maximum billable clip duration, per the design's reservation
     contract: the reservation must be an upper bound, not an
-    expected/average estimate.
+    expected/average estimate. Providers bill whole seconds, so a fractional
+    duration is rounded up before pricing (TASK-126: a 15.6 s Third-ASR clip
+    billed as 16 s exceeded its 15.6 s reservation and recorded a ledger
+    integrity failure).
     """
 
     seconds = decimal_from_admission_input(max_billable_seconds, label="max_billable_seconds")
@@ -630,7 +633,7 @@ def derive_audio_reservation_usd(
     if seconds <= 0:
         raise ValueError("max_billable_seconds must be positive")
 
-    return seconds * price
+    return seconds.to_integral_value(rounding=ROUND_CEILING) * price
 
 
 def resolve_stage_reservation_usd(

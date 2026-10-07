@@ -17,8 +17,12 @@ At a minimum, a real deployment needs:
 - a configured podcast RSS feed;
 - a GCS bucket;
 - Google Cloud credentials with narrowly scoped permissions;
-- a Whisper/OpenRouter credential;
+- a guarded OpenRouter credential for the Whisper producer;
 - Apple transcript acquisition configuration if that source is enabled;
-- reviewer/knowledge model configuration if AI-assisted stages are enabled.
+- reviewer/knowledge model configuration if AI-assisted stages are enabled;
+- a Third-ASR credential if automatic review evidence prefetch is enabled;
+- a verified materiality-judge preset if materiality shadow/queue behavior is enabled.
+
+The worker-side Third-ASR and materiality stages are optional and fail closed: missing credentials or verified preset evidence must not become an implicit transcript decision.
 
 Do not treat the example values in this portfolio repository as production defaults.

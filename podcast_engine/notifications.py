@@ -38,12 +38,30 @@ _ENGLISH_MONTH_ABBREVIATIONS = (
 )
 
 
+def review_tier_summary(tiers: dict | None) -> str | None:
+    """TASK-126: one line describing the tier split, or None if unknown."""
+
+    if not isinstance(tiers, dict):
+        return None
+    try:
+        a, b, c = (int(tiers.get(tier, 0)) for tier in ("A", "B", "C"))
+    except (TypeError, ValueError):
+        return None
+    if min(a, b, c) < 0:
+        return None
+    return (
+        f"{b + c} need a decision ({b} listening, {c} protected); "
+        f"{a} can be confirmed together in tier A."
+    )
+
+
 def build_slack_review_payload(
     episode: dict,
     pending_count: int,
     review_url: str,
     *,
     triage_unavailable: int = 0,
+    tiers: dict | None = None,
 ) -> dict:
     """Build the Slack Block Kit message for a human-review queue."""
 
@@ -89,6 +107,11 @@ def build_slack_review_payload(
                         "text": (
                             f"*Needs review*\n"
                             f"{count} transcript {difference_label}"
+                            + (
+                                f"\n{review_tier_summary(tiers)}"
+                                if review_tier_summary(tiers)
+                                else ""
+                            )
                         ),
                     },
                     {
@@ -257,6 +280,7 @@ def send_slack_review_notification(
     *,
     webhook_url: str | None = None,
     triage_unavailable: int = 0,
+    tiers: dict | None = None,
 ) -> bool:
     """Send one Slack review notification.
 
@@ -269,6 +293,7 @@ def send_slack_review_notification(
         pending_count,
         review_url,
         triage_unavailable=triage_unavailable,
+        tiers=tiers,
     )
 
     return _send_slack_payload(
@@ -530,6 +555,8 @@ def build_email_review_payload(
     episode: dict,
     pending_count: int,
     review_url: str,
+    *,
+    tiers: dict | None = None,
 ) -> dict:
     """Build initial Human Review email."""
     count = int(pending_count)
@@ -546,6 +573,9 @@ def build_email_review_payload(
         f"{count} transcript {label} "
         "need human review."
     )
+    tier_line = review_tier_summary(tiers)
+    if tier_line:
+        detail = f"{detail} {tier_line}"
 
     return {
         "subject": (
@@ -574,6 +604,8 @@ def build_email_review_refreshed_payload(
     previous_pending_count: int,
     pending_count: int,
     review_url: str,
+    *,
+    tiers: dict | None = None,
 ) -> dict:
     """Build email for a changed Human Review queue."""
     previous = int(previous_pending_count)
@@ -594,6 +626,9 @@ def build_email_review_refreshed_payload(
         f"{previous} to {current} transcript "
         f"{label}."
     )
+    tier_line = review_tier_summary(tiers)
+    if tier_line:
+        detail = f"{detail} {tier_line}"
 
     return {
         "subject": (
@@ -1035,6 +1070,8 @@ def send_email_review_notification(
     episode: dict,
     pending_count: int,
     review_url: str,
+    *,
+    tiers: dict | None = None,
 ) -> bool:
     """Send non-fatal email for a new review queue."""
     return _send_email_payload(
@@ -1043,6 +1080,7 @@ def send_email_review_notification(
             episode,
             pending_count,
             review_url,
+            tiers=tiers,
         ),
     )
 
@@ -1052,6 +1090,8 @@ def send_email_review_refreshed_notification(
     previous_pending_count: int,
     pending_count: int,
     review_url: str,
+    *,
+    tiers: dict | None = None,
 ) -> bool:
     """Send non-fatal email for a refreshed review queue."""
     return _send_email_payload(
@@ -1061,5 +1101,6 @@ def send_email_review_refreshed_notification(
             previous_pending_count,
             pending_count,
             review_url,
+            tiers=tiers,
         ),
     )

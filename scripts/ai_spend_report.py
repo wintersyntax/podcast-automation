@@ -27,7 +27,7 @@ import sys
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT_DIR = REPOSITORY_ROOT / "var" / "ai-spend"
 LEDGER_GLOB = "episodes/*/ai/budgets/*.json"
-CSV_STAGES = ("resolver", "triage", "third_asr", "summary", "summary_review", "metadata", "note_writer")
+CSV_STAGES = ("resolver", "triage", "third_asr", "materiality", "summary", "summary_review", "metadata", "note_writer")
 
 
 def build_report(breakdowns: list[dict], episodes: dict[str, dict]) -> dict:

@@ -553,6 +553,10 @@ _WORKER_READER = (
     *SUMMARY_REVIEW_ARTIFACTS,
     STALLED_EMAIL_CLAIM,
     AI_BUDGET_LEDGER,
+    # TASK-126: Worker-side Third-ASR prefetch before the review email
+    # reads the runtime marker and the per-item claim.
+    BUDGET_IDENTITY_RECONCILIATION,
+    THIRD_ASR_CLAIM,
     TAG_REGISTRY,
 )
 _WORKER_WRITER = (
@@ -571,6 +575,10 @@ _WORKER_WRITER = (
     *SUMMARY_REVIEW_ARTIFACTS,
     STALLED_EMAIL_CLAIM,
     AI_BUDGET_LEDGER,
+    # TASK-126: create-only runtime marker and per-item Third-ASR claim for
+    # the Worker-side prefetch (same objects the review runtime writes).
+    BUDGET_IDENTITY_RECONCILIATION,
+    THIRD_ASR_CLAIM,
     TAG_REGISTRY,
 )
 _APPLE_INGEST_READER = (
@@ -606,6 +614,9 @@ _REVIEW_WRITER = (
     SUMMARY_METADATA,
     SUMMARY_FINAL,
     AI_BUDGET_LEDGER,
+    # TASK-126: create-only runtime marker for a source generation proven by
+    # named reads to have no input-keyed Third-ASR spend.
+    BUDGET_IDENTITY_RECONCILIATION,
     PREPARE_SESSION,
     THIRD_ASR_CLAIM,
     TAG_REGISTRY,

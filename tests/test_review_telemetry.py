@@ -114,6 +114,17 @@ class ReviewTelemetryTests(unittest.TestCase):
         self.assertNotIn("Apple evidence", json.dumps(report))
         self.assertTrue(all(call[0] in {"blob", "exists", "download_as_bytes"} for call in bucket.calls))
 
+    def test_decisions_are_counted_by_review_tier(self):
+        tiered = dict(_decision("apple"), review_tier={"policy_version": "review-tiers-v1", "tier": "A", "reason": "triage_high", "source": "apple"})
+        objects = dict(self.objects)
+        resolver = json.loads(objects["episodes/ep-v2/review/resolver.json"])
+        resolver["human_decisions"].append(tiered)
+        objects["episodes/ep-v2/review/resolver.json"] = json.dumps(resolver)
+        report = review_telemetry.build_telemetry(_Bucket(objects))
+        self.assertEqual(report["human_decisions"]["by_tier"], {"A": 1, "unrecorded": 4})
+        self.assertEqual(report["episodes"][1]["decisions_by_tier"], {"A": 1, "unrecorded": 2})
+        self.assertIn("| A | 1 |", review_telemetry.render_markdown(report))
+
     def test_output_is_deterministic_and_markdown_warns_for_small_sample(self):
         first = review_telemetry.build_telemetry(_Bucket(self.objects))
         second = review_telemetry.build_telemetry(_Bucket(self.objects))

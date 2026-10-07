@@ -12,10 +12,10 @@ This repository is a curated portfolio version of a larger private production pr
 ## Engineering highlights
 
 - resumable RSS-driven episode processing with durable GCS-backed state
-- independent Apple Podcasts and Whisper transcript acquisition
+- independent Apple Podcasts and OpenRouter `whisper-large-v3` transcript acquisition with bounded chunking, retry and spend accounting
 - transcript alignment and conservative multi-source reconciliation
 - deterministic evidence/provenance checks around bounded AI-assisted resolution
-- explicit Human Review for material unresolved conflicts
+- explicit Human Review for material unresolved conflicts, with prefetched Third-ASR evidence and a materiality-first quick-review queue
 - episode-level AI budget admission, settlement and provenance tracking
 - single-pass, transcript-grounded knowledge-note writer with deterministic publication checks
 - an independent transcript-grounded summary-review path when the writer is not configured
@@ -56,8 +56,9 @@ flowchart LR
 
     GCS --> Compiler[Transcript compiler]
     Compiler --> Resolver[Bounded resolver]
+    Resolver --> Evidence[Third-ASR + materiality evidence]
 
-    Resolver -->|material ambiguity| Review[Human Review]
+    Evidence -->|material ambiguity| Review[Human Review]
     Review -->|decision + recompile| Worker
 
     Compiler -->|resolved| Writer[Single-pass structured note writer]
@@ -76,17 +77,18 @@ The important boundary is authority: model output can assist inside explicit con
 
 1. Discover the latest configured RSS episode and resume older incomplete work.
 2. Download episode audio to ephemeral worker storage.
-3. Generate a chunked Whisper transcript with provenance.
+3. Generate a chunked OpenRouter `whisper-large-v3` transcript with producer provenance, budget reservations and bounded rate-limit backoff.
 4. Acquire an independent Apple transcript when available.
 5. Store both source artifacts separately.
 6. Align and compare the sources.
 7. Apply deterministic equivalence/corroboration rules.
 8. Use a bounded resolver only for eligible conflicts.
-9. Route remaining material disagreements to Human Review.
-10. Recompile after durable review decisions.
-11. When a knowledge-writer preset is configured, generate a structured `knowledge-note-v3` note from the canonical transcript in one writer stage; otherwise use the summary draft, independent review and metadata path.
-12. Apply deterministic structure and transcript-anchor checks to the writer note, or validate the accepted review chain on the legacy path.
-13. Construct frontmatter deterministically and publish the final note only after its path's checks pass.
+9. Prefetch bounded Third-ASR evidence for remaining cards and record a materiality verdict without granting either mechanism transcript authority.
+10. Present Human Review as quick cards first, then one explicit settled-card confirmation, ordinary review for what remains, and finally recompile. Every stored choice remains an audited human decision.
+11. Recompile after durable review decisions.
+12. When a knowledge-writer preset is configured, generate a structured `knowledge-note-v3` note from the canonical transcript in one writer stage; otherwise use the summary draft, independent review and metadata path.
+13. Apply deterministic structure and transcript-anchor checks to the writer note, or validate the accepted review chain on the legacy path.
+14. Construct frontmatter deterministically and publish the final note only after its path's checks pass.
 
 ## Human Review
 
@@ -96,7 +98,7 @@ The same Flask review application can run locally or as a separate service. Revi
 
 *The synthetic demo shows a high-risk study sample-size conflict (**42 vs 40 participants**) and a deliberately simplified exercise-name conflict (**Romanian deadlift vs Roman deadlift**). The exercise-name example is pedagogical: earlier compiler and bounded-resolution stages are intended to remove many obvious or low-risk differences before Human Review. The important boundary is that protected disagreements such as negations, protocol numbers, units, citations and other domain-sensitive mismatches are not silently normalized away.*
 
-Current Human Review work is focused on reducing how many low-risk cases require a manual decision while keeping protected categories fail-closed. High-confidence, exact-source, low-risk recommendations are treated differently from protected cases, and the ongoing optimization is about making that boundary more selective without weakening it.
+Current Human Review uses a materiality-first queue. Low-impact cards can be presented as a control sample, a fast Apple/Whisper choice, or a one-click proposal; cards the filter cannot safely simplify stay in ordinary review. A 10% control sample (at least two cards, excluding representation-only classes) checks the filter in real use. Third-ASR and older tier/batch/assisted surfaces remain advisory and are kept under advanced controls. The system never silently turns those signals into canonical transcript text.
 
 Synthetic fixtures in `tests/fixtures/synthetic/` demonstrate the same review boundary without publishing real podcast transcript material.
 
@@ -155,7 +157,7 @@ examples/launchd/      sanitized macOS launch-agent examples
 
 The checked-in podcast configuration is intentionally disabled and synthetic. Start from `config/podcasts.example.json` and `.env.example`.
 
-The committed OpenRouter preset lock is also an example identity, not a production preset. A real deployment must provide its own verified preset/version configuration. `PODCAST_KNOWLEDGE_WRITER_PRESET` selects the single-pass writer; the summary-review path remains available when it is unset.
+The committed OpenRouter preset lock is also an example identity, not a production preset. A real deployment must provide its own verified preset/version configuration. `PODCAST_KNOWLEDGE_WRITER_PRESET` selects the single-pass writer; the summary-review path remains available when it is unset. Optional review tuning is controlled through the Third-ASR/materiality environment switches documented in `.env.example`.
 
 ## Public-repository safety
 
@@ -175,7 +177,7 @@ This project was developed with substantial **AI-assisted software development**
 
 **Active work in progress.** The private production project is working, while this public repository is a cleaned portfolio extraction of that system.
 
-Recent work focused on optimizing the summary / knowledge-note workflow. The current development focus is Human Review: reducing the number of low-risk transcript differences that require a manual decision, while preserving strict handling for cases where a transcription error could materially change meaning — especially negations, protocol numbers, units, citations, source-only semantics, anomalies, and domain-sensitive terminology.
+Recent work moved the review path from a flat card list toward a materiality-first workflow: Third-ASR evidence can be prefetched before review, harmless differences are separated from truly material conflicts, quick choices are staged before one final save, and each session records bounded audit evidence for later tuning. Protected cases such as differing values, negations, citations and domain-sensitive semantics remain fail-closed.
 
 The next phase after Human Review optimization is the retrieval layer described above: semantic search and RAG over the source-grounded knowledge notes.
 

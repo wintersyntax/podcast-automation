@@ -2004,6 +2004,15 @@ def compile_episode_sources(
         link_recompile_result(review_record)
         if superseded_human_decisions:
             review_record["superseded_human_decisions"] = superseded_human_decisions
+        # TASK-133: the reviewer's materiality audit (time, overruled filter
+        # choices, notes) outlives a recompilation like the decisions do.
+        preserved_review_log = [
+            dict(entry)
+            for entry in (cached_record or {}).get("materiality_review_log", [])
+            if isinstance(entry, dict)
+        ]
+        if preserved_review_log:
+            review_record["materiality_review_log"] = preserved_review_log
 
         _save_review_record(
             canonical[

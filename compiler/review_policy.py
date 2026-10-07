@@ -76,6 +76,24 @@ def _clock_context_proves_time(context: str) -> bool:
     return bool(_CLOCK_CONTEXT_CUE.search(context))
 
 
+def _obvious_run_on(apple_tokens: list[str], whisper_tokens: list[str]) -> bool:
+    """Mirror the compiler's run-on split rule, which keeps priority.
+
+    A long joined word against clearly separate words ("healthpromoting" /
+    "health promoting") is repaired by ``split_run_on_word`` in the compiler,
+    so it is not declared a representation equivalence here.
+    """
+
+    if len(apple_tokens) == len(whisper_tokens):
+        return False
+    joined, split = (
+        (apple_tokens, whisper_tokens)
+        if len(apple_tokens) < len(whisper_tokens)
+        else (whisper_tokens, apple_tokens)
+    )
+    return max(map(len, joined)) >= 9 and min(map(len, split)) >= 5
+
+
 def representation_equivalence(
     apple_text: str,
     whisper_text: str,
@@ -98,6 +116,23 @@ def representation_equivalence(
         return {
             "equivalence_class": "et_cetera",
             "reason": "Spelled-out et cetera and etc preserve the same token sequence",
+            "selection_policy": "preserve_primary_source",
+        }
+
+    # TASK-131: the same letters split or joined differently ("pull down" /
+    # "pulldown", "side delts" / "side-delts") are one spoken form. Digits are
+    # excluded because a boundary inside a number changes its value.
+    if (
+        apple_tokens != whisper_tokens
+        and apple_tokens
+        and whisper_tokens
+        and not any(token.isdigit() for token in apple_tokens + whisper_tokens)
+        and "".join(apple_tokens) == "".join(whisper_tokens)
+        and not _obvious_run_on(apple_tokens, whisper_tokens)
+    ):
+        return {
+            "equivalence_class": "compound_spacing",
+            "reason": "Both sources spell the same letters and differ only in spacing or hyphenation",
             "selection_policy": "preserve_primary_source",
         }
 

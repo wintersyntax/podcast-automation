@@ -1,8 +1,8 @@
-"""List or reconcile Whisper budget integrity failures (TASK-125).
+"""List or reconcile Whisper or Third-ASR budget integrity failures (TASK-125, TASK-126).
 
 Dry run (default) lists every budget ledger of the given episodes that holds
 an unreconciled integrity failure. ``--execute`` settles one Whisper
-transcription attempt at its recorded actual cost; the operator restates the
+transcription or Third-ASR attempt at its recorded actual cost; the operator restates the
 exact attempt id and actual cost printed by the dry run, and any mismatch
 fails closed. The failure stays in the ledger's append-only
 ``integrity_reconciliations`` list.
@@ -72,7 +72,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     print(
         f"RECONCILED {row['episode_key']} {args.attempt}: settled at "
-        f"{attempt['settled_usd']} USD; Whisper transcription may be admitted again"
+        f"{attempt['settled_usd']} USD; the ledger admits reservations again"
     )
     return 0
 
