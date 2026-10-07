@@ -28,29 +28,29 @@ def verdict(left: str, apple: str, whisper: str, right: str) -> tuple[str, str]:
 class MaterialityRuleTests(unittest.TestCase):
     def test_abandoned_negated_start_restarted_with_a_negation_is_immaterial(self):
         self.assertEqual(
-            verdict("a notable mitigation of that. So", "", "it's not, you know,", "it isn't all over. And there's"),
+            verdict("the earlier draft was rejected. So", "", "it's not, you know,", "it isn't finished yet. And there is"),
             ("immaterial", "fillers_restarts"),
         )
 
     def test_lone_no_interjection_is_immaterial(self):
         self.assertEqual(
-            verdict("ai yourself or something, but like", "", "No", ", I don't know about that. And so"),
+            verdict("the idea was still unclear, but like", "", "No", ", I don't agree with that. And so"),
             ("immaterial", "fillers_restarts"),
         )
 
     def test_dropped_negation_that_flips_the_claim_goes_to_the_judge(self):
         self.assertEqual(
-            verdict("it's just an energy balance thing. I", "", "don't", "think there's anything special to doing"),
+            verdict("the proposal is straightforward. I", "", "don't", "think there is anything unusual about doing"),
             ("judge", "negation"),
         )
 
     def test_numbers_always_stay_with_the_reviewer(self):
         self.assertEqual(
-            verdict("for most people, you're in that probably", "200", "2", "to 400 calorie surplus"),
+            verdict("for most people, you're in that probably", "200", "2", "to 400 units in the example"),
             ("reviewer", "number"),
         )
         self.assertEqual(
-            verdict("we're looking at things like maybe", "twenty twenty", "twenty twenty eight", "we might"),
+            verdict("the schedule might move around", "twenty twenty", "twenty twenty eight", "before launch"),
             ("reviewer", "number"),
         )
 
@@ -81,49 +81,49 @@ class MaterialityRuleTests(unittest.TestCase):
 
     def test_filler_and_function_word_differences_are_immaterial(self):
         self.assertEqual(
-            verdict("you don't experience", "just a", "like, you know, just the", "mental fatigue monster"),
+            verdict("you do not experience", "just a", "like, you know, just the", "a meaningful change"),
             ("immaterial", "function_words"),
         )
 
     def test_spacing_and_hyphenation_only_is_immaterial(self):
         self.assertEqual(
-            verdict("we got a lovely", "e-mail from someone", "email from someone", "who we had covered"),
+            verdict("we received an", "e-mail from the sender", "email from the sender", "that we had discussed"),
             ("immaterial", "same_letters"),
         )
 
     def test_repetition_of_the_next_words_is_immaterial(self):
         self.assertEqual(
-            verdict("but I'm not,", "", "I'm not", "I'm not training with them per se"),
+            verdict("but it is not,", "", "it is not", "it is not part of the final plan"),
             ("immaterial", "fillers_restarts"),
         )
 
     def test_content_word_and_modal_differences_go_to_the_judge(self):
         self.assertEqual(
-            verdict("I'm in the whatever camp where", "creatine", "creating", "coffee fish oil"),
+            verdict("the example mentions", "creatine", "creating", "in the sentence"),
             ("judge", "content"),
         )
         self.assertEqual(
-            verdict("I get it on the edge of", "a bench. You can", "the like a bench and you have to like", "hook your feet"),
+            verdict("the bracket sits beside", "the frame. You can", "the frame and you have to", "attach the support"),
             ("judge", "content"),
         )
 
     def test_sponsor_read_in_one_source_keeps_the_other_reading(self):
-        ad = ("This message is brought to you by AppleCard. With AppleCard, you earn unlimited daily cash back "
-              "on everyday purchases, like groceries, merch or tickets to the game, anywhere it is accepted.")
-        self.assertEqual(verdict("", ad, "", ". Milo, having spoken to you off air"), ("advertisement", "use_whisper"))
+        ad = ("This message is brought to you by ExampleCard. With ExampleCard, you earn unlimited example reward points "
+              "on everyday purchases, like ordinary example purchases, anywhere it is accepted.")
+        self.assertEqual(verdict("", ad, "", ". After the break, we return to the discussion"), ("advertisement", "use_whisper"))
         # A sponsor read with numbers is still recognised before the number rule.
         self.assertEqual(verdict("", "", ad + " Call 555 today.", "and welcome"), ("advertisement", "use_apple"))
 
     def test_long_stretch_only_one_source_has_stays_with_the_reviewer(self):
         apple = ("So sometime between seven and nine, depending upon the day and whether it's the weekend, "
                  "I'm having breakfast, which typically consists of some type of mix of vegetables, and or toast")
-        self.assertEqual(verdict("I go to breakfast with my wife.", apple, "", "or porridge"), ("reviewer", "number"))
+        self.assertEqual(verdict("The example schedule begins here.", apple, "", "and then it continues"), ("reviewer", "number"))
         apple = ("So we don't see really any net negative impact of that muscle losing some volume as it improves "
                  "its characteristics in how it handles glucose and insulin over the following months")
-        self.assertEqual(verdict("glycemic control better.", apple, "", "in terms of fat"), ("reviewer", "one_sided_long"))
+        self.assertEqual(verdict("The synthetic context starts here.", apple, "", "and ends here"), ("reviewer", "one_sided_long"))
 
     def test_partial_focus_scopes_the_readings(self):
-        item = card("so", "we did make a decision", "we didn't make a decision", "and I'm gonna")
+        item = card("so", "we did approve the change", "we didn't approve the change", "before the next step")
         item["focus"] = {"scope": "partial", "apple_text": "did", "whisper_text": "didn't"}
         inputs = materiality_inputs(item)
         self.assertEqual((inputs["apple"], inputs["whisper"]), ("did", "didn't"))
@@ -142,13 +142,13 @@ def choice_inputs(apple: str, whisper: str, third: str | None = None) -> dict:
 
 class ReadingChoiceTests(unittest.TestCase):
     def test_no_source_is_preferred_without_evidence(self):
-        self.assertEqual(choose_reading(choice_inputs("gym fail", "Jim Fail"), reason="judge"), (None, "click_one"))
+        self.assertEqual(choose_reading(choice_inputs("term alpha", "term beta"), reason="judge"), (None, "click_one"))
 
     def test_advertisement_keeps_the_reading_without_the_sponsor_read(self):
         self.assertEqual(choose_reading(choice_inputs("ad", ""), reason="use_whisper"), ("whisper", "advertisement"))
 
     def test_third_asr_must_equal_exactly_one_reading(self):
-        inputs = choice_inputs("get your protein back up", "Thank you", third="you know, get your protein back up")
+        inputs = choice_inputs("restore the target value", "Thank you", third="you know, restore the target value")
         self.assertEqual(choose_reading(inputs, reason="judge"), ("apple", "third_asr"))
         self.assertEqual(choose_reading(choice_inputs("a", "b", third="c"), reason="judge"), (None, "click_one"))
 
@@ -169,14 +169,14 @@ class ReadingChoiceTests(unittest.TestCase):
         self.assertEqual(choose_reading(choice_inputs("e-mail", "email"), reason="same_letters"), (None, "either"))
 
     def test_proposal_needs_unanimous_votes_the_third_asr_does_not_contradict(self):
-        inputs = choice_inputs("squat or front squat", "squelch the front squelch")
+        inputs = choice_inputs("option alpha or option beta", "garbled option beta")
         self.assertEqual(proposal(inputs, reason="judge", votes=["apple"] * 3), ("apple", "judge"))
-        contradicted = choice_inputs("squat or front squat", "squelch the front squelch", third="squelch the front squelch")
+        contradicted = choice_inputs("option alpha or option beta", "garbled option beta", third="garbled option beta")
         self.assertEqual(proposal(contradicted, reason="judge", votes=["apple"] * 3), (None, None))
         self.assertEqual(proposal(inputs, reason="judge", votes=["apple", "unclear", "apple"]), (None, None))
 
     def test_number_card_proposes_the_only_reading_with_words(self):
-        self.assertEqual(proposal(choice_inputs("50 minutes", "um"), reason="number"), ("apple", "number_gap"))
+        self.assertEqual(proposal(choice_inputs("50 units", "um"), reason="number"), ("apple", "number_gap"))
         self.assertEqual(proposal(choice_inputs("2017", "17"), reason="number"), (None, None))
 
 

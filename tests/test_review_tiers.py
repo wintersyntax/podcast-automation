@@ -9,7 +9,7 @@ from unittest.mock import patch
 from compiler.review_tiers import REVIEW_TIER_POLICY_VERSION, derive_review_tier
 from podcast_engine import human_review
 from podcast_engine.review_web import create_review_app
-from tests.test_third_asr_window import JEWETT_357
+from tests.test_third_asr_window import SYNTHETIC_LONG_CLIP
 
 
 def _card(difference_id=1, **overrides):
@@ -37,13 +37,12 @@ def _triage(source, confidence="high"):
 
 def _two_of_three(**overrides):
     card = _card(category="negation", risk_reasons=["negation"], **{
-        key: copy.deepcopy(value) for key, value in JEWETT_357.items()
+        key: copy.deepcopy(value) for key, value in SYNTHETIC_LONG_CLIP.items()
     })
     card["third_asr"] = {
         "text": (
-            "Look for the stage, as in the competitors you're up against, the "
-            "lighting, what the judges want to see. There's lots of errors that "
-            "will play. So thinking about that as more of a, like, not a bullseye."
+            "In the rehearsal there can be errors that can happen. So thinking "
+            "about that as a range helps the team plan."
         )
     }
     card.update(overrides)
@@ -90,10 +89,10 @@ class DeriveReviewTierTests(unittest.TestCase):
     def test_exact_two_of_three_admits_even_a_protected_card(self):
         tier = derive_review_tier(_two_of_three())
         self.assertEqual((tier["tier"], tier["reason"], tier["source"]), ("A", "two_of_three", "apple"))
-        self.assertEqual(tier["text"], JEWETT_357["apple_text"])
+        self.assertEqual(tier["text"], SYNTHETIC_LONG_CLIP["apple_text"])
 
     def test_third_voice_with_a_new_reading_is_tier_b(self):
-        tier = derive_review_tier(_card(**{key: copy.deepcopy(value) for key, value in JEWETT_357.items()}))
+        tier = derive_review_tier(_card(**{key: copy.deepcopy(value) for key, value in SYNTHETIC_LONG_CLIP.items()}))
         self.assertEqual((tier["tier"], tier["reason"]), ("B", "third_new_reading"))
 
     def test_conflicting_signals_never_produce_tier_a(self):
@@ -102,7 +101,7 @@ class DeriveReviewTierTests(unittest.TestCase):
         protected_conflict = derive_review_tier(_two_of_three(triage=_triage("whisper")))
         self.assertEqual((protected_conflict["tier"], protected_conflict["reason"]), ("C", "conflicting_evidence"))
         heard_else = derive_review_tier(_card(
-            triage=_triage("apple"), **{key: copy.deepcopy(value) for key, value in JEWETT_357.items()}
+            triage=_triage("apple"), **{key: copy.deepcopy(value) for key, value in SYNTHETIC_LONG_CLIP.items()}
         ))
         self.assertEqual((heard_else["tier"], heard_else["reason"]), ("B", "conflicting_evidence"))
 
