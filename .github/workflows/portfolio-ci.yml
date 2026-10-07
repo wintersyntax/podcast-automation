@@ -1,0 +1,42 @@
+name: Portfolio CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Verify ffmpeg availability
+        run: ffmpeg -version | head -n 1
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --require-hashes -r requirements.txt
+          python -m pip install --require-hashes -r requirements.review.txt
+
+      - name: Run curated public test suite
+        env:
+          PODCAST_GCS_BUCKET: test-bucket
+          WORKER_PROJECT: test-project
+          REVIEW_ALLOWED_EMAIL: reviewer@example.com
+        run: |
+          python -m unittest discover -s tests -p 'test_*.py' -v

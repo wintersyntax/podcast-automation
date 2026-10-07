@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(git -C "$(dirname "$0")/.." rev-parse --show-toplevel)"
+cd "$ROOT"
+
+if ! command -v uv >/dev/null 2>&1; then
+  echo "error: uv is required for knowledge-note regeneration" >&2
+  exit 127
+fi
+
+exec uv run \
+  --python 3.12 \
+  --with-requirements requirements.txt \
+  python scripts/regenerate_knowledge_notes.py "$@"

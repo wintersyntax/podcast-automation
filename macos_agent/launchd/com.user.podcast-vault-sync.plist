@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.user.podcast-vault-sync</string>
+	<key>ProcessType</key>
+	<string>Background</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Users/YOUR_USER/Documents/GitHub/podcast-automation/.venv/bin/python</string>
+		<string>-m</string>
+		<string>macos_agent.vault_sync</string>
+		<string>--all-ready</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StandardErrorPath</key>
+	<string>/Users/YOUR_USER/Documents/GitHub/podcast-automation/var/vault_sync.stderr.log</string>
+	<key>StandardOutPath</key>
+	<string>/Users/YOUR_USER/Documents/GitHub/podcast-automation/var/vault_sync.stdout.log</string>
+	<key>StartCalendarInterval</key>
+	<array>
+		<dict>
+			<key>Hour</key>
+			<integer>9</integer>
+			<key>Minute</key>
+			<integer>0</integer>
+		</dict>
+		<dict>
+			<key>Hour</key>
+			<integer>15</integer>
+			<key>Minute</key>
+			<integer>0</integer>
+		</dict>
+		<dict>
+			<key>Hour</key>
+			<integer>21</integer>
+			<key>Minute</key>
+			<integer>0</integer>
+		</dict>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>/Users/YOUR_USER/Documents/GitHub/podcast-automation</string>
+</dict>
+</plist>
