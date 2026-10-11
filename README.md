@@ -96,6 +96,12 @@ The important boundary is authority: model output can assist inside explicit con
 13. Validate structure and transcript anchors in Python, remove unsupported units/sponsor/stub content, convert marked quantities to SI, resolve tags and render the Markdown body deterministically.
 14. Construct frontmatter in Python and publish only after those checks pass.
 
+## PodcastOps status dashboard — synthetic demo
+
+The private production system includes a read-only episode-status dashboard. This public repository now includes **the same dashboard frontend** with a loopback-only synthetic server, using 12 fictional episodes instead of Google Cloud records. The demo illustrates review queues, prepared summaries, local Mac Vault delivery confirmation, pending sync and unavailable evidence.
+
+Run `python scripts/demo_ops_dashboard.py` and open `http://127.0.0.1:8767/ops`. It does not provide the private authenticated production backend or read production data. See the [PodcastOps synthetic demo guide](docs/DEMO_PODCASTOPS.md) for screenshot and safety instructions.
+
 ## Human Review
 
 The same Flask review application can run locally or as a separate service. Review state is durable and generation-aware; recompile requests carry correlation identifiers so a later worker execution can continue the exact episode/review generation.
@@ -152,7 +158,7 @@ examples/launchd/      sanitized macOS launch-agent examples
 - [Architecture](docs/ARCHITECTURE.md)
 - [Transcript pipeline](docs/TRANSCRIPT_PIPELINE.md)
 - [Human Review](docs/HUMAN_REVIEW.md)
-- [Synthetic Human Review demo](docs/DEMO_HUMAN_REVIEW.md)
+- [Synthetic Human Review demo](docs/DEMO_HUMAN_REVIEW.md)\n- [Synthetic PodcastOps dashboard demo](docs/DEMO_PODCASTOPS.md)
 - [Synthetic knowledge-note demo](docs/DEMO_KNOWLEDGE_NOTE.md)
 - [Knowledge generation](docs/KNOWLEDGE_GENERATION.md)
 - [Setup](docs/SETUP.md)
