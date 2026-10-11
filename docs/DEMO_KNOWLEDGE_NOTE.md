@@ -44,14 +44,18 @@ The script also writes the exact generated Markdown to:
 examples/demo-knowledge-note.md
 ```
 
-## Suggested GIF
+## Published portfolio asset
 
-Record roughly 12-15 seconds:
+The published visual is a **static PNG**, not a GIF:
 
-1. start at the title, tags and TL;DR;
-2. scroll through **Protein intake and timing** and its evidence labels;
-3. pause briefly on **Research discussed** so the study design/sample/duration/result are readable;
-4. continue through **Romanian deadlift execution**;
-5. finish on **Numbers & protocols** / **Takeaways** / **Sources mentioned**.
+```text
+assets/demo-knowledge-note.png
+```
 
-The purpose is to show the useful final artifact, not every internal pipeline step.
+The exact inspectable synthetic Markdown example is:
+
+```text
+examples/demo-knowledge-note.md
+```
+
+A still image is appropriate for this static final artifact: readers can inspect the screenshot at a glance and open the Markdown for all sections, citations-as-heard, evidence labels, technique guidance and numerical protocols. The repo currently ships **one Human Review GIF and one knowledge-note PNG**; no second GIF is required or claimed.

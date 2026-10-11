@@ -37,3 +37,7 @@ The current knowledge-generation path uses a verified `PODCAST_KNOWLEDGE_WRITER_
 ## Reliability model
 
 Episode processing is resumable and idempotent. Durable state is written before best-effort notifications. Conflict-sensitive writes use generation preconditions, per-episode AI spend is admitted and settled through the budget ledger, and later runs resume incomplete episodes rather than assuming that the newest RSS item is the only work remaining.
+
+## Public source and newer private production
+
+This diagram depicts the core pipeline represented in the curated public extraction. It intentionally does not claim that later private modules (republished-episode detection, the PodcastOps episode-status dashboard, Mac Vault delivery receipts and newer Human Review durability paths) have all been mirrored into this code. Their verified upstream status and the boundary for safe public porting are documented in [Public extraction scope and upstream status](UPSTREAM_STATUS.md).

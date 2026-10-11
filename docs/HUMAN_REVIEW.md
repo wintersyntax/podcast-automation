@@ -28,3 +28,7 @@ Third-ASR evidence can be prefetched before the review notification and refreshe
 - operator scripts can report review telemetry and materiality-session history without changing review decisions.
 
 The same application can run locally for development or as a separate Cloud Run service.
+
+## Later upstream improvements
+
+The private project subsequently hardened review generation fingerprints to preserve legacy decisions, added tightly checked full-span decision replay, and allowed feedback notes to be saved independently after card review. Those production milestones postdate this public source snapshot and are **not presented as included code features here**. See [Public extraction scope and upstream status](UPSTREAM_STATUS.md) before describing or porting them.
