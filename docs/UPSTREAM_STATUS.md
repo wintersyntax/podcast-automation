@@ -12,7 +12,7 @@ This repository is a **curated portfolio extraction**, not a live, byte-for-byte
 | Compiler | Bounded alignment and reconciliation, conservative conflict authority, Third-ASR evidence and materiality logic |
 | Human Review | Materiality-first quick cards, explicit settled-card acceptance, detailed review and synthetic interactive demo |
 | Knowledge | Single-pass structured `knowledge-note-v3` writer, deterministic validation/rendering and a synthetic rendered note |
-| Integration | Separate worker/review services, optional Slack and Mac helpers, example configuration and curated regression tests |
+| Integration | Separate worker/review services, optional Slack and Mac helpers, example configuration and curated regression tests |\n| PodcastOps demo UI | The production frontend template is publicly inspectable through an offline, read-only synthetic server; the private GCS-backed status projection and authentication are not ported |
 
 ## Verified later private-production milestones — not fully ported here
 
@@ -24,7 +24,7 @@ This repository is a **curated portfolio extraction**, not a live, byte-for-byte
 | Mac Vault delivery | Checksum-bound, idempotent local-copy receipts; the dashboard distinguishes `summary ready` from `Mac copy confirmed`. A local receipt is **not** proof of remote iCloud upload |
 | Operational verification | Production demonstrations of duplicate suppression, completed review replay, independent feedback saving and scheduled Vault Sync recovery |
 
-These rows describe **upstream production progress**, not missing-file bugs in the portfolio build. They must not be described as implemented in the checked-in public source until the corresponding sanitized implementation and regression tests are deliberately ported and pass this repository's CI.
+These rows describe **upstream production progress**, not missing-file bugs in the portfolio build. The synthetic PodcastOps demo added later includes only the presentation template and fabricated API response; it is not a port of the production backend. They must not be described as implemented in the checked-in public source until the corresponding sanitized implementation and regression tests are deliberately ported and pass this repository's CI.
 
 ## Media and demo boundary
 
