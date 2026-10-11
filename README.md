@@ -22,6 +22,14 @@ This repository is a curated portfolio version of a larger private production pr
 - separate Cloud Run worker and Human Review service boundaries
 - optional Slack signalling and macOS credential/sync helpers
 
+## Current public snapshot and newer upstream work
+
+The public source snapshot was curated on **7 October 2026**. The private production project has advanced since then, but this repository is intentionally **not** an automatic mirror.
+
+As of **11 October 2026**, newer upstream work includes republished-episode detection before unnecessary downstream processing, a read-only PodcastOps episode-status dashboard, checksum-bound receipts that distinguish a local Mac Vault copy from cloud/iCloud delivery, and stronger Human Review replay, queue identity and independently saved feedback. These are verified **private-production milestones**, **not** claims that all those newer code paths are included in this public snapshot.
+
+The main pipeline, materiality-first Human Review, single-pass knowledge writer, and synthetic demos described below are represented in this curated public code. For a precise included-versus-upstream breakdown, see [Public extraction scope and upstream status](docs/UPSTREAM_STATUS.md).
+
 ## Domain focus
 
 The system is tuned for long-form exercise and nutrition content where small transcription errors can change the meaning of the material being captured. The knowledge pipeline is designed to preserve and structure details such as:
@@ -150,6 +158,7 @@ examples/launchd/      sanitized macOS launch-agent examples
 - [Setup](docs/SETUP.md)
 - [Deployment](docs/DEPLOYMENT.md)
 - [Security and privacy](docs/SECURITY_AND_PRIVACY.md)
+- [Public extraction scope and upstream status](docs/UPSTREAM_STATUS.md)
 
 ## Configuration
 
@@ -177,7 +186,7 @@ This project was developed with substantial **AI-assisted software development**
 
 Recent work moved the review path from a flat card list toward a materiality-first workflow: Third-ASR evidence can be prefetched before review, harmless differences are separated from truly material conflicts, quick choices are staged before one final save, and each session records bounded audit evidence for later tuning. Protected cases such as differing values, negations, citations and domain-sensitive semantics remain fail-closed.
 
-The next phase after Human Review optimization is the retrieval layer described above: semantic search and RAG over the source-grounded knowledge notes.
+The private project continues to refine transcript evidence, reviewer workload and note quality. Semantic search and RAG over source-grounded notes remain a **future direction**, not a feature shipped in this public snapshot.
 
 
 ## License
