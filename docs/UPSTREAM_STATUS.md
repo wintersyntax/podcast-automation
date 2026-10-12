@@ -2,7 +2,7 @@
 
 This repository is a **curated portfolio extraction**, not a live, byte-for-byte mirror of the private production project. It deliberately demonstrates core engineering boundaries with safe configuration, synthetic fixtures and public tests.
 
-**Comparison date:** 11 October 2026. The public baseline was curated on 7 October; the private system continued to evolve on 8–10 October. A passing public CI run proves the published snapshot's test suite, **not** that every later private production feature has been copied here.
+**Comparison date:** 12 October 2026. The public baseline was curated on 7 October, with targeted ASR reliability code and tests added on 12 October. The private system continued to evolve on 8–12 October. A passing public CI run proves the published snapshot's test suite, **not** that every later private production feature has been copied here.
 
 ## What the public source demonstrates
 
@@ -14,6 +14,16 @@ This repository is a **curated portfolio extraction**, not a live, byte-for-byte
 | Knowledge | Single-pass structured `knowledge-note-v3` writer, deterministic validation/rendering and a synthetic rendered note |
 | Integration | Separate worker/review services, optional Slack and Mac helpers, example configuration and curated regression tests |\n| PodcastOps demo UI | The production frontend template is publicly inspectable through an offline, read-only synthetic server; the private GCS-backed status projection and authentication are not ported |
 
+## Public runtime fixes extracted on 12 October 2026
+
+| Area | Included in this public update |
+| --- | --- |
+| ASR timestamps | Tiny backward word-start steps at stitched chunk seams are clamped within the existing tolerance; larger regressions still fail validation. |
+| Third-ASR budget concurrency | Transient generation/CAS contention is retried with bounded jittered backoff; persistent contention still stops prefetch. |
+| Synthetic regression coverage | Tests verify both recovery and preserved fail-closed behavior without any real episode transcript. |
+
+These narrowly extracted changes come from private TASK-125 and TASK-126. Public Portfolio CI must independently verify them.
+
 ## Verified later private-production milestones — not fully ported here
 
 | Area | Added or proven in private production after the public baseline |
@@ -23,8 +33,10 @@ This repository is a **curated portfolio extraction**, not a live, byte-for-byte
 | PodcastOps | Authenticated read-only episode/card status and delivery dashboard, separated from the review queue; optional evidence failures do not hide episode status |
 | Mac Vault delivery | Checksum-bound, idempotent local-copy receipts; the dashboard distinguishes `summary ready` from `Mac copy confirmed`. A local receipt is **not** proof of remote iCloud upload |
 | Operational verification | Production demonstrations of duplicate suppression, completed review replay, independent feedback saving and scheduled Vault Sync recovery |
+| Review audio | Clips cut from the actual transcribed source audio and removed after episode completion (TASK-144), not ported |
+| Provider outage | Per-episode transcription deferral with continued processing and alerting after prolonged unavailability (TASK-145), not ported |
 
-These rows describe **upstream production progress**, not missing-file bugs in the portfolio build. The synthetic PodcastOps demo added later includes only the presentation template and fabricated API response; it is not a port of the production backend. They must not be described as implemented in the checked-in public source until the corresponding sanitized implementation and regression tests are deliberately ported and pass this repository's CI.
+These rows describe **upstream production progress not yet mirrored in the public source**, not missing-file bugs in the portfolio build. The synthetic PodcastOps demo added later includes only the presentation template and fabricated API response; it is not a port of the production backend. They must not be described as implemented in the checked-in public source until the corresponding sanitized implementation and regression tests are deliberately ported and pass this repository's CI.
 
 ## Media and demo boundary
 
