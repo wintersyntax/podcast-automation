@@ -18,6 +18,7 @@ It is best-effort and never blocks the review notification:
 from __future__ import annotations
 
 import os
+import random
 import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
@@ -26,7 +27,7 @@ from typing import Callable
 from compiler.review_tiers import derive_review_tier
 from compiler.third_asr_window import anchored_third_asr_window
 
-from .ai_budget import BudgetLedgerError
+from .ai_budget import BudgetConcurrencyError, BudgetLedgerError
 from .ai_pricing import PricingResolutionError
 from .human_review import (
     ThirdAsrClaimError,
@@ -40,6 +41,7 @@ PREFETCH_TIERS = frozenset({"B", "C"})
 PREFETCH_WORKERS = 3
 PREFETCH_MAX_ITEMS = 120
 PREFETCH_MAX_CONSECUTIVE_FAILURES = 5
+PREFETCH_CONCURRENCY_RETRIES = 4
 PREFETCH_WALL_CLOCK_SECONDS = 900
 
 
@@ -116,6 +118,7 @@ def prefetch_third_asr(
     load_record: Callable[[str], dict] = load_review_record,
     workers: int = PREFETCH_WORKERS,
     monotonic: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> dict:
     """Fetch Third-ASR evidence for tier-B/C cards; return a summary.
 
@@ -165,7 +168,14 @@ def prefetch_third_asr(
             state["stop"] = "wall_clock"
             return "skipped"
         try:
-            ensure(episode, difference_id)
+            for retry in range(PREFETCH_CONCURRENCY_RETRIES + 1):
+                try:
+                    ensure(episode, difference_id)
+                    break
+                except BudgetConcurrencyError:
+                    if retry == PREFETCH_CONCURRENCY_RETRIES:
+                        raise
+                    sleep(random.uniform(0.5, 1.5) * (retry + 1))
         except ThirdAsrClaimError:
             # Another request owns the claim, or the generation moved on.
             return "in_flight"
