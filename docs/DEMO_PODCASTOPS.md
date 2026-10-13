@@ -18,6 +18,12 @@ The 12 invented episodes demonstrate a complete processing path, a review-requir
 
 **Mac copy confirmed** means a copy of the exact summary was reported on the Mac at the recorded time. It is **not** proof of iCloud upload or continuing local file existence. A recompile `started` audit is **not** live Cloud Run status. The demo cannot mutate state, run AI, fetch feeds, dispatch jobs or reach private services.
 
+## Screenshot in the public README
+
+![Synthetic PodcastOps episode status dashboard](../assets/demo-podcastops-dashboard.png)
+
+The screenshot is generated from the real read-only frontend and the same 12 wholly fictional episodes served by this local demo. It is a static, public-safe preview, **not** a production status report.
+
 ## Capture a public-safe screenshot
 
 1. Start the demo and open the URL above in your browser.
