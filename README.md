@@ -102,6 +102,10 @@ The important boundary is authority: model output can assist inside explicit con
 
 The private production system includes a read-only episode-status dashboard. This public repository now includes **the same dashboard frontend** with a loopback-only synthetic server, using 12 fictional episodes instead of Google Cloud records. The demo illustrates review queues, prepared summaries, local Mac Vault delivery confirmation, pending sync and unavailable evidence.
 
+![Synthetic PodcastOps episode and Mac Vault Sync dashboard](assets/demo-podcastops-dashboard.png)
+
+*Screenshot of the local synthetic demo: 12 fictional episodes, with review, summary and Mac Vault delivery states. “Mac copy confirmed” verifies a reported local copy at that time, not remote iCloud upload.*
+
 Run `python scripts/demo_ops_dashboard.py` and open `http://127.0.0.1:8767/ops`. It does not provide the private authenticated production backend or read production data. See the [PodcastOps synthetic demo guide](docs/DEMO_PODCASTOPS.md) for screenshot and safety instructions.
 
 ## Human Review
