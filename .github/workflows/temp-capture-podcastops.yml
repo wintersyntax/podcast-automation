@@ -1,0 +1,83 @@
+# Temporary PR-only capture. This file is deleted from the branch before merge.
+name: Temporary synthetic PodcastOps screenshot capture
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  screenshot:
+    if: >-
+      ${{ github.repository == 'wintersyntax/podcast-automation' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          github.event.pull_request.head.ref == 'docs/podcastops-first-screenshot-20261013' &&
+          github.event.pull_request.base.ref == 'main' &&
+          github.actor == 'wintersyntax' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the exact same-repository PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: true
+      - name: Capture entirely local synthetic dashboard
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -f assets/demo-podcastops-dashboard.png; then
+            echo "Screenshot already committed; nothing to regenerate."
+            exit 0
+          fi
+          browser="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+          test -n "$browser" || { echo "No headless browser found"; exit 1; }
+          python3 scripts/demo_ops_dashboard.py >/tmp/podcastops-demo.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for i in $(seq 1 40); do
+            if curl --silent --fail http://127.0.0.1:8767/api/ops/episodes >/tmp/podcastops-status.json; then
+              ready=1
+              break
+            fi
+            sleep .25
+          done
+          test "$ready" -eq 1 || { cat /tmp/podcastops-demo.log; exit 1; }
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          rows = json.loads(Path('/tmp/podcastops-status.json').read_text())['episodes']
+          assert len(rows) == 12
+          assert all(x['episode_key'].startswith('demo-episode-') for x in rows)
+          PY
+          "$browser" --headless --no-sandbox --disable-gpu --disable-dev-shm-usage \
+            --hide-scrollbars --window-size=1680,1050 --virtual-time-budget=4500 \
+            --screenshot="$PWD/assets/demo-podcastops-dashboard.png" \
+            http://127.0.0.1:8767/ops
+          python3 - <<'PY'
+          import struct
+          from pathlib import Path
+          p = Path('assets/demo-podcastops-dashboard.png')
+          png = p.read_bytes()
+          assert png.startswith(b'\x89PNG\r\n\x1a\n')
+          width, height = struct.unpack('>II', png[16:24])
+          assert width >= 1200 and height >= 800, (width, height)
+          assert len(png) >= 10000, len(png)
+          print(f'Synthetic screenshot: {width}x{height}, {len(png)} bytes')
+          PY
+      - name: Commit only the synthetic PNG to the same PR branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -f assets/demo-podcastops-dashboard.png && ! git ls-files --error-unmatch assets/demo-podcastops-dashboard.png >/dev/null 2>&1; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add -- assets/demo-podcastops-dashboard.png
+            git commit -m "assets: capture synthetic PodcastOps status dashboard"
+            git push origin "HEAD:refs/heads/docs/podcastops-first-screenshot-20261013"
+          fi
