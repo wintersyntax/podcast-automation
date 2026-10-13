@@ -990,6 +990,36 @@ def _stitch_chunk_overlap(
     )
 
 
+def _clamp_small_word_backsteps(segments: list[dict]) -> int:
+    """Clamp minor backward word starts across stitched chunk boundaries.
+
+    Independent chunks can time the same speech slightly differently.
+    Larger regressions remain errors under the monotonicity validator.
+    """
+
+    clamped = 0
+    previous_start: float | None = None
+    for segment in segments:
+        for word in segment.get("words") or []:
+            start = word.get("start")
+            if start is None:
+                continue
+            start = float(start)
+            if (
+                previous_start is not None
+                and start < previous_start
+                and previous_start - start
+                <= WORD_START_BACKSTEP_TOLERANCE_SECONDS + TIMESTAMP_EPSILON
+            ):
+                word["start"] = previous_start
+                if word.get("end") is not None and float(word["end"]) < previous_start:
+                    word["end"] = previous_start
+                start = previous_start
+                clamped += 1
+            previous_start = start
+    return clamped
+
+
 def _validate_monotonic_timestamps(
     segments: list[dict],
 ) -> None:
@@ -1382,6 +1412,7 @@ def transcribe_audio(
 
         for segment_id, segment in enumerate(metadata_segments):
             segment["id"] = segment_id
+        _clamp_small_word_backsteps(metadata_segments)
         _validate_monotonic_timestamps(metadata_segments)
         print("Timestamp validation passed")
 

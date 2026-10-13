@@ -892,6 +892,32 @@ class TranscriberTests(unittest.TestCase):
         rebuilt = transcriber._rebuild_segment_from_words(segments[0], segments[0]["words"])
         self.assertEqual(rebuilt["text"], "What's up, everybody?")
 
+    def test_small_backward_step_at_chunk_seam_is_clamped(self):
+        segments = [
+            {"id": 0, "start": 3598.0, "end": 3602.9, "text": "a b", "words": [
+                {"word": " a", "start": 3598.0, "end": 3600.0},
+                {"word": " b", "start": 3602.43, "end": 3602.46},
+            ]},
+            {"id": 1, "start": 3602.4, "end": 3605.0, "text": "c d", "words": [
+                {"word": " c", "start": 3602.40, "end": 3602.80},
+                {"word": " d", "start": 3603.0, "end": 3603.5},
+            ]},
+        ]
+        with self.assertRaises(RuntimeError):
+            transcriber._validate_monotonic_timestamps(segments)
+        self.assertEqual(transcriber._clamp_small_word_backsteps(segments), 1)
+        transcriber._validate_monotonic_timestamps(segments)
+        self.assertAlmostEqual(segments[1]["words"][0]["start"], 3602.43)
+
+    def test_large_backward_step_still_rejected(self):
+        segments = [{"id": 0, "start": 0.0, "end": 9.0, "text": "a b", "words": [
+            {"word": " a", "start": 5.0, "end": 5.5},
+            {"word": " b", "start": 4.0, "end": 4.5},
+        ]}]
+        self.assertEqual(transcriber._clamp_small_word_backsteps(segments), 0)
+        with self.assertRaises(RuntimeError):
+            transcriber._validate_monotonic_timestamps(segments)
+
     def test_language_hint_uses_iso_codes(self):
         self.assertEqual(transcriber._language_hint("english"), "en")
         self.assertEqual(transcriber._language_hint(" English "), "en")

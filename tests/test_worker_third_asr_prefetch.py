@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from podcast_engine import pipeline
 from podcast_engine import third_asr_prefetch as prefetch
-from podcast_engine.ai_budget import BudgetAdmissionError
+from podcast_engine.ai_budget import BudgetAdmissionError, BudgetConcurrencyError
 from podcast_engine.human_review import ThirdAsrInFlight
 from podcast_engine.notifications import (
     build_email_review_payload,
@@ -48,13 +48,13 @@ class PrefetchEnabledTests(unittest.TestCase):
 
 
 class PrefetchRunTests(unittest.TestCase):
-    def _run(self, record, *, ensure, tiers, workers=1):
+    def _run(self, record, *, ensure, tiers, workers=1, sleep=lambda _: None):
         with (
             patch.dict(os.environ, KEY_ENV, clear=False),
             patch.object(prefetch, "derive_review_tier", side_effect=_tiers_by_id(tiers)),
         ):
             return prefetch.prefetch_third_asr(
-                EPISODE, ensure=ensure, load_record=lambda key: record, workers=workers
+                EPISODE, ensure=ensure, load_record=lambda key: record, workers=workers, sleep=sleep
             )
 
     def test_disabled_never_reads_record_and_counts_compiled_queue(self):
@@ -100,6 +100,32 @@ class PrefetchRunTests(unittest.TestCase):
         self.assertEqual(summary["status"], "stopped")
         self.assertEqual(summary["stopped_reason"], "BudgetAdmissionError")
         self.assertIsNotNone(summary["tiers"])
+
+    def test_budget_contention_retries_successfully(self):
+        record = {"human_review": [_item(1), _item(2)]}
+        attempts, waits = [], []
+
+        def ensure(episode, item_id):
+            attempts.append(item_id)
+            if item_id == 1 and attempts.count(1) < 3:
+                raise BudgetConcurrencyError("generation changed")
+            return {"text": "x"}
+
+        summary = self._run(record, ensure=ensure, tiers={}, sleep=waits.append)
+        self.assertEqual(summary["status"], "completed")
+        self.assertEqual(summary["fetched"], 2)
+        self.assertEqual(attempts.count(1), 3)
+        self.assertEqual(len(waits), 2)
+
+    def test_persistent_budget_contention_still_stops(self):
+        record = {"human_review": [_item(1), _item(2)]}
+
+        def ensure(episode, item_id):
+            raise BudgetConcurrencyError("generation changed")
+
+        summary = self._run(record, ensure=ensure, tiers={})
+        self.assertEqual(summary["status"], "stopped")
+        self.assertEqual(summary["stopped_reason"], "BudgetConcurrencyError")
 
     def test_claim_in_flight_is_skipped_not_failed(self):
         record = {"human_review": [_item(1)]}

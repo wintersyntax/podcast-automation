@@ -24,9 +24,11 @@ This repository is a curated portfolio version of a larger private production pr
 
 ## Current public snapshot and newer upstream work
 
-The public source snapshot was curated on **7 October 2026**. The private production project has advanced since then, but this repository is intentionally **not** an automatic mirror.
+The public source baseline was curated on **7 October 2026**, with two narrowly scoped runtime reliability fixes added on **12 October 2026**. The private production project has advanced further, but this repository is intentionally **not** an automatic mirror.
 
-As of **11 October 2026**, newer upstream work includes republished-episode detection before unnecessary downstream processing, a read-only PodcastOps episode-status dashboard, checksum-bound receipts that distinguish a local Mac Vault copy from cloud/iCloud delivery, and stronger Human Review replay, queue identity and independently saved feedback. These are verified **private-production milestones**, **not** claims that all those newer code paths are included in this public snapshot.
+As of **12 October 2026**, newer upstream work includes republished-episode detection before unnecessary downstream processing, a read-only PodcastOps episode-status dashboard, checksum-bound receipts that distinguish a local Mac Vault copy from cloud/iCloud delivery, and stronger Human Review replay, queue identity and independently saved feedback. These are verified **private-production milestones**, **not** claims that all those newer code paths are included in this public snapshot.
+
+The **12 October public reliability update** includes a bounded correction for tiny word-timestamp backsteps at ASR chunk seams and bounded retries when concurrent Third-ASR prefetch cards contend for the same AI budget ledger. Larger timestamp regressions and exhausted budget retries still fail closed. Synthetic tests cover both behaviors. Provider-outage episode deferral, review-audio retention, and the authenticated PodcastOps backend are **not** included in this update.
 
 The main pipeline, materiality-first Human Review, single-pass knowledge writer, and synthetic demos described below are represented in this curated public code. For a precise included-versus-upstream breakdown, see [Public extraction scope and upstream status](docs/UPSTREAM_STATUS.md).
 
