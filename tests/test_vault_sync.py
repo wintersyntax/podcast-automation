@@ -26,8 +26,8 @@ class VaultSyncTests(unittest.TestCase):
         return {
             "id": "episode-1",
             "episode_key": "episode-1",
-            "podcast": "Iron / Culture: Strength",
-            "title": "Ep 386: Caffeine / Creatine?",
+            "podcast": "Example / Strength: Podcast",
+            "title": "Demo Episode - Training / Nutrition?",
             "published": "Thu, 20 Aug 2026 14:58:00 +0000",
             "status": {"summary": {"state": "ready"}},
         }
