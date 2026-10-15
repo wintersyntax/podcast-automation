@@ -74,7 +74,6 @@ def _discover_path_named_functions(root: Path) -> set[str]:
 
 def _gcs_path_function_cases():
     source_fingerprint = "sha256:" + ("e" * 64)
-    review_id = f"sr-{KEY}"
     session_id = "a" * 32
     compiler_report = f"{ROOT}/compiled/report.json"
 
@@ -94,14 +93,6 @@ def _gcs_path_function_cases():
         ),
         "podcast_engine/episode_contract.py::paths_for": lambda: tuple(
             episode_contract.paths_for(KEY).values()
-        ),
-        "podcast_engine/episode_contract.py::summary_review_artifact_paths": lambda: tuple(
-            value
-            for name, value in episode_contract.summary_review_artifact_paths(
-                KEY,
-                review_id,
-            ).items()
-            if name != "root"  # Prefix convenience, not an object path.
         ),
         "podcast_engine/episode_contract.py::incoming_apple_paths": lambda: tuple(
             episode_contract.incoming_apple_paths(KEY).values()
