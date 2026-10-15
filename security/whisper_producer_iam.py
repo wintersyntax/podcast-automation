@@ -53,11 +53,6 @@ WRITER_ROLE = f"projects/{PROJECT_ID}/roles/podcastObjectReadWrite"
 MAX_CEL_LOGICAL_OPERATORS = 10
 
 _EPISODE_KEY = re.compile(r"^[0-9a-f]{24}$")
-_REVIEW_ID = re.compile(r"^sr-[0-9a-f]{24}$")
-_STALLED_EMAIL_DIGEST = re.compile(r"^[0-9a-f]{64}$")
-_STALLED_EMAIL_PATTERN = (
-    "/summary/review_notifications/stalled_email/<digest>.json"
-)
 _AI_BUDGET_DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _AI_BUDGET_PATTERN = "/ai/budgets/<digest>.json"
 _BUDGET_IDENTITY_RECONCILIATION_PATTERN = (
@@ -72,8 +67,6 @@ PatternKind = Literal[
     "exact",
     "episode",
     "incoming_apple",
-    "summary_review",
-    "stalled_email",
     "ai_budget",
     "budget_identity_reconciliation",
     "prepare_session",
@@ -99,10 +92,6 @@ class ObjectPattern:
             return _matches_keyed_path(object_name, "episodes/", self.value)
         if self.kind == "incoming_apple":
             return _matches_keyed_path(object_name, "incoming/apple/", self.value)
-        if self.kind == "summary_review":
-            return _matches_summary_review_artifact(object_name, self.value)
-        if self.kind == "stalled_email":
-            return _matches_stalled_email_claim(object_name)
         if self.kind == "ai_budget":
             return _matches_ai_budget_ledger(object_name)
         if self.kind == "budget_identity_reconciliation":
@@ -122,10 +111,6 @@ class ObjectPattern:
             return _prefix_suffix_clause("episodes/", self.value)
         if self.kind == "incoming_apple":
             return _prefix_suffix_clause("incoming/apple/", self.value)
-        if self.kind == "summary_review":
-            return _summary_review_artifact_clause(self.value)
-        if self.kind == "stalled_email":
-            return _stalled_email_claim_clause()
         if self.kind == "ai_budget":
             return _ai_budget_ledger_clause()
         if self.kind == "budget_identity_reconciliation":
@@ -143,13 +128,6 @@ class ObjectPattern:
             return f"episodes/<episode_key>{self.value}"
         if self.kind == "incoming_apple":
             return f"incoming/apple/<episode_key>{self.value}"
-        if self.kind == "summary_review":
-            return (
-                "episodes/<episode_key>/summary/reviews/"
-                f"<review_id>/{self.value}"
-            )
-        if self.kind == "stalled_email":
-            return f"episodes/<episode_key>{self.value}"
         if self.kind == "ai_budget":
             return f"episodes/<episode_key>{self.value}"
         if self.kind == "budget_identity_reconciliation":
@@ -243,49 +221,6 @@ def _prefix_suffix_clause(prefix: str, suffix: str) -> str:
         "(resource.name.startsWith("
         f"'{_resource_name(prefix)}') && "
         f"resource.name.endsWith('{suffix}'))"
-    )
-
-
-def _matches_summary_review_artifact(
-    object_name: str,
-    filename: str,
-) -> bool:
-    prefix = "episodes/"
-    marker = "/summary/reviews/"
-    suffix = f"/{filename}"
-
-    if not object_name.startswith(prefix) or not object_name.endswith(suffix):
-        return False
-
-    middle = object_name[len(prefix) : -len(suffix)]
-    parts = middle.split(marker)
-    if len(parts) != 2:
-        return False
-
-    episode_key, review_id = parts
-    return bool(
-        _EPISODE_KEY.fullmatch(episode_key)
-        and _REVIEW_ID.fullmatch(review_id)
-    )
-
-
-def _matches_stalled_email_claim(object_name: str) -> bool:
-    prefix = "episodes/"
-    marker = "/summary/review_notifications/stalled_email/"
-    suffix = ".json"
-
-    if not object_name.startswith(prefix) or not object_name.endswith(suffix):
-        return False
-
-    middle = object_name[len(prefix) : -len(suffix)]
-    parts = middle.split(marker)
-    if len(parts) != 2:
-        return False
-
-    episode_key, digest = parts
-    return bool(
-        _EPISODE_KEY.fullmatch(episode_key)
-        and _STALLED_EMAIL_DIGEST.fullmatch(digest)
     )
 
 
@@ -422,29 +357,6 @@ def _third_asr_claim_clause() -> str:
     )
 
 
-def _summary_review_artifact_clause(filename: str) -> str:
-    template = f"/summary/reviews/sr-{{review_token}}/{filename}"
-    return (
-        "(resource.name.startsWith("
-        f"'{_resource_name('episodes/')}') && "
-        f"resource.name.endsWith('/{filename}') && "
-        f"resource.name.extract('{template}') != '')"
-    )
-
-
-def _stalled_email_claim_clause() -> str:
-    template = (
-        "/summary/review_notifications/stalled_email/"
-        "{digest}.json"
-    )
-    return (
-        "(resource.name.startsWith("
-        f"'{_resource_name('episodes/')}') && "
-        "resource.name.endsWith('.json') && "
-        f"resource.name.extract('{template}') != '')"
-    )
-
-
 def _ai_budget_ledger_clause() -> str:
     template = "/ai/budgets/{digest}.json"
     return (
@@ -465,14 +377,6 @@ def _episode(suffix: str) -> ObjectPattern:
 
 def _incoming_apple(filename: str) -> ObjectPattern:
     return ObjectPattern("incoming_apple", f"/{filename}")
-
-
-def _summary_review(filename: str) -> ObjectPattern:
-    return ObjectPattern("summary_review", filename)
-
-
-def _stalled_email_claim() -> ObjectPattern:
-    return ObjectPattern("stalled_email", _STALLED_EMAIL_PATTERN)
 
 
 def _ai_budget_ledger() -> ObjectPattern:
@@ -501,34 +405,14 @@ APPLE_SOURCE_TEXT = _episode("/sources/apple/transcript.txt")
 APPLE_SOURCE_METADATA = _episode("/sources/apple/transcript.json")
 WHISPER_SOURCE_TEXT = _episode("/sources/whisper/transcript.txt")
 WHISPER_SOURCE_METADATA = _episode("/sources/whisper/transcript.json")
+# TASK-144: the exact audio the Whisper source was made from (review clips).
+WHISPER_REVIEW_AUDIO = _episode("/sources/whisper/audio.mp3")
 COMPILED_TEXT = _episode("/compiled/transcript.txt")
 COMPILER_REPORT = _episode("/compiled/report.json")
 RESOLVER_RECORD = _episode("/review/resolver.json")
 SUMMARY_BODY = _episode("/summary/body.md")
 SUMMARY_METADATA = _episode("/summary/metadata.json")
 SUMMARY_FINAL = _episode("/summary/summary.md")
-SUMMARY_REVIEW_HISTORY = _episode("/summary/reviews/index.json")
-SUMMARY_REVIEW_DRAFT = _summary_review("draft.md")
-SUMMARY_REVIEW_FINAL = _summary_review("final.md")
-SUMMARY_REVIEW_RECORD = _summary_review("review.json")
-SUMMARY_REVIEW_TRANSCRIPT_INDEX = _summary_review(
-    "transcript-span-index.json"
-)
-SUMMARY_REVIEW_DRAFT_INDEX = _summary_review(
-    "draft-block-index.json"
-)
-SUMMARY_REVIEW_RISK_INVENTORY = _summary_review(
-    "risk-inventory.json"
-)
-SUMMARY_REVIEW_ARTIFACTS = (
-    SUMMARY_REVIEW_DRAFT,
-    SUMMARY_REVIEW_FINAL,
-    SUMMARY_REVIEW_RECORD,
-    SUMMARY_REVIEW_TRANSCRIPT_INDEX,
-    SUMMARY_REVIEW_DRAFT_INDEX,
-    SUMMARY_REVIEW_RISK_INVENTORY,
-)
-STALLED_EMAIL_CLAIM = _stalled_email_claim()
 AI_BUDGET_LEDGER = _ai_budget_ledger()
 BUDGET_IDENTITY_RECONCILIATION = _budget_identity_reconciliation()
 PREPARE_SESSION = _prepare_session()
@@ -544,14 +428,12 @@ _WORKER_READER = (
     APPLE_SOURCE_METADATA,
     WHISPER_SOURCE_TEXT,
     WHISPER_SOURCE_METADATA,
+    WHISPER_REVIEW_AUDIO,
     COMPILED_TEXT,
     RESOLVER_RECORD,
     SUMMARY_BODY,
     SUMMARY_METADATA,
     SUMMARY_FINAL,
-    SUMMARY_REVIEW_HISTORY,
-    *SUMMARY_REVIEW_ARTIFACTS,
-    STALLED_EMAIL_CLAIM,
     AI_BUDGET_LEDGER,
     # TASK-126: Worker-side Third-ASR prefetch before the review email
     # reads the runtime marker and the per-item claim.
@@ -565,15 +447,13 @@ _WORKER_WRITER = (
     APPLE_STAGING_TEXT,
     WHISPER_SOURCE_TEXT,
     WHISPER_SOURCE_METADATA,
+    WHISPER_REVIEW_AUDIO,
     COMPILED_TEXT,
     COMPILER_REPORT,
     RESOLVER_RECORD,
     SUMMARY_BODY,
     SUMMARY_METADATA,
     SUMMARY_FINAL,
-    SUMMARY_REVIEW_HISTORY,
-    *SUMMARY_REVIEW_ARTIFACTS,
-    STALLED_EMAIL_CLAIM,
     AI_BUDGET_LEDGER,
     # TASK-126: create-only runtime marker and per-item Third-ASR claim for
     # the Worker-side prefetch (same objects the review runtime writes).
@@ -595,12 +475,11 @@ _REVIEW_READER = (
     APPLE_SOURCE_METADATA,
     WHISPER_SOURCE_TEXT,
     WHISPER_SOURCE_METADATA,
+    WHISPER_REVIEW_AUDIO,
     RESOLVER_RECORD,
     SUMMARY_BODY,
     SUMMARY_METADATA,
     SUMMARY_FINAL,
-    SUMMARY_REVIEW_HISTORY,
-    SUMMARY_REVIEW_RECORD,
     AI_BUDGET_LEDGER,
     BUDGET_IDENTITY_RECONCILIATION,
     PREPARE_SESSION,
@@ -775,28 +654,6 @@ def validate_contract() -> None:
         ):
             raise ValueError("Episode writer patterns must have a fixed suffix")
         for pattern in binding.patterns:
-            if (
-                pattern.kind == "summary_review"
-                and pattern.value
-                not in {
-                    "draft.md",
-                    "final.md",
-                    "review.json",
-                    "transcript-span-index.json",
-                    "draft-block-index.json",
-                    "risk-inventory.json",
-                }
-            ):
-                raise ValueError(
-                    "Unsupported summary-review artifact was declared"
-                )
-            if (
-                pattern.kind == "stalled_email"
-                and pattern.value != _STALLED_EMAIL_PATTERN
-            ):
-                raise ValueError(
-                    "Stalled-email claim pattern must stay canonical"
-                )
             if (
                 pattern.kind == "ai_budget"
                 and pattern.value != _AI_BUDGET_PATTERN

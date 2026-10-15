@@ -21,6 +21,7 @@ from security.whisper_producer_iam import (
     FORBIDDEN_PERMISSIONS,
     MAX_CEL_LOGICAL_OPERATORS,
     OBJECT_RESOURCE_PREFIX,
+    PRINCIPALS,
     READER_PERMISSIONS,
     REVIEW_PRINCIPAL,
     WORKER_PRINCIPAL,
@@ -275,110 +276,22 @@ class WhisperProducerIamPolicyTests(unittest.TestCase):
             )
         validate_contract()
 
-    def test_summary_review_paths_preserve_named_object_least_privilege(self):
-        review_id = "sr-0123456789abcdef01234567"
-        claim_digest = "a" * 64
-
-        history_index = f"{ROOT}/summary/reviews/index.json"
-        review_root = f"{ROOT}/summary/reviews/{review_id}"
-        evidence_paths = (
+    def test_retired_summary_review_objects_are_denied_to_every_runtime(self):
+        # TASK-149: the summary reviewer was retired (TASK-146); its history
+        # and stalled-email claims stay in GCS but no runtime may touch them.
+        review_root = f"{ROOT}/summary/reviews/sr-0123456789abcdef01234567"
+        for object_name in (
+            f"{ROOT}/summary/reviews/index.json",
             f"{review_root}/draft.md",
             f"{review_root}/final.md",
             f"{review_root}/review.json",
-            f"{review_root}/transcript-span-index.json",
-            f"{review_root}/draft-block-index.json",
             f"{review_root}/risk-inventory.json",
-        )
-        stalled_claim = (
-            f"{ROOT}/summary/review_notifications/"
-            f"stalled_email/{claim_digest}.json"
-        )
-
-        for object_name in (
-            history_index,
-            *evidence_paths,
-            stalled_claim,
+            f"{ROOT}/summary/review_notifications/stalled_email/{'a' * 64}.json",
         ):
-            for permission in (
-                "storage.objects.get",
-                "storage.objects.create",
-                "storage.objects.delete",
-            ):
-                with self.subTest(
-                    principal="worker",
-                    permission=permission,
-                    object_name=object_name,
-                ):
-                    self.assertTrue(
-                        is_allowed(
-                            WORKER_PRINCIPAL,
-                            permission,
-                            object_name,
-                        )
-                    )
-
-        review_json = f"{review_root}/review.json"
-        for object_name in (history_index, review_json):
-            self.assertTrue(
-                is_allowed(
-                    REVIEW_PRINCIPAL,
-                    "storage.objects.get",
-                    object_name,
-                )
-            )
-            for permission in (
-                "storage.objects.create",
-                "storage.objects.delete",
-            ):
-                self.assertFalse(
-                    is_allowed(
-                        REVIEW_PRINCIPAL,
-                        permission,
-                        object_name,
-                    )
-                )
-
-        for object_name in (
-            f"{review_root}/draft.md",
-            f"{review_root}/final.md",
-            f"{review_root}/transcript-span-index.json",
-            f"{review_root}/draft-block-index.json",
-            f"{review_root}/risk-inventory.json",
-            stalled_claim,
-        ):
-            self.assertFalse(
-                is_allowed(
-                    REVIEW_PRINCIPAL,
-                    "storage.objects.get",
-                    object_name,
-                )
-            )
-
-        for principal in (WORKER_PRINCIPAL, REVIEW_PRINCIPAL):
-            for object_name in (history_index, review_json):
-                self.assertFalse(
-                    is_allowed(
-                        principal,
-                        "storage.objects.list",
-                        object_name,
-                    )
-                )
-
-        for object_name in (
-            f"{review_root}/private-debug.json",
-            f"{review_root}/review.json.bak",
-            f"{ROOT}/summary/review_notifications/"
-            f"stalled_email/{claim_digest}.json.bak",
-        ):
-            for principal in (WORKER_PRINCIPAL, REVIEW_PRINCIPAL):
-                for permission in WRITER_PERMISSIONS:
-                    self.assertFalse(
-                        is_allowed(
-                            principal,
-                            permission,
-                            object_name,
-                        )
-                    )
+            for principal in PRINCIPALS:
+                for permission in ("storage.objects.get", *WRITER_PERMISSIONS):
+                    with self.subTest(principal=principal, permission=permission, object_name=object_name):
+                        self.assertFalse(is_allowed(principal, permission, object_name))
 
     def test_all_audited_writer_paths_are_allowed_for_create_and_delete(self):
         positive_cases = 0
@@ -509,7 +422,7 @@ class WhisperProducerIamPolicyTests(unittest.TestCase):
         second_emission = generate_physical_iam_bindings()
 
         self.assertEqual(first_emission, second_emission)
-        self.assertEqual(len(first_emission), 21)
+        self.assertEqual(len(first_emission), 17)  # TASK-149: summary-review grants retired
         for binding in first_emission:
             expression = binding.cel_expression()
             with self.subTest(principal=binding.principal, kind=binding.kind, expression=expression):
@@ -629,8 +542,6 @@ class WhisperProducerIamPolicyTests(unittest.TestCase):
                     "exact",
                     "episode",
                     "incoming_apple",
-                    "summary_review",
-                    "stalled_email",
                     "ai_budget",
                     "budget_identity_reconciliation",
                     "third_asr_claim",
