@@ -18,6 +18,7 @@ import unicodedata
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
+from typing import Callable
 from urllib.parse import urlsplit, urlunsplit
 
 from dotenv import load_dotenv
@@ -27,6 +28,7 @@ from podcast_engine.episode_contract import (
     summary_is_vault_sync_ready,
 )
 from podcast_engine.storage import download_gcs_bytes, load_episodes
+from podcast_engine.vault_sync_receipts import record_vault_sync_receipts, summary_digest
 
 
 DEFAULT_VAULT_SUBDIR = "Podcasts"
@@ -225,8 +227,9 @@ def export_vault_summary(
     *,
     vault_root: Path | None = None,
     vault_subdir: Path | None = None,
+    on_synced: Callable[[str, bytes], None] | None = None,
 ) -> tuple[Path, bool]:
-    """Copy one canonical final summary, preserving mtime when bytes match."""
+    """Copy one final summary; optionally gather local copy proof after success."""
     episode_key = (
         episode.get("episode_key")
         or episode.get("id")
@@ -266,6 +269,8 @@ def export_vault_summary(
             and destination.read_bytes() == content
         ):
             print(f"Vault summary unchanged: {destination}")
+            if on_synced is not None:
+                on_synced(episode_key, content)
             return destination, False
     except OSError as error:
         if error.errno != errno.EDEADLK:
@@ -293,6 +298,8 @@ def export_vault_summary(
             temporary.unlink(missing_ok=True)
 
     print(f"Vault summary exported: {destination}")
+    if on_synced is not None:
+        on_synced(episode_key, content)
     return destination, True
 
 
@@ -317,7 +324,13 @@ def sync_episode(
             episode.get("episode_key") == episode_key
             or episode.get("id") == episode_key
         ):
-            return export_vault_summary(episode)
+            proofs: dict[str, str] = {}
+            result = export_vault_summary(
+                episode,
+                on_synced=lambda key, content: proofs.__setitem__(key, summary_digest(content)),
+            )
+            record_vault_sync_receipts(proofs)
+            return result
 
     raise ValueError(
         f"episode not found in GCS index: {episode_key}"
@@ -327,17 +340,24 @@ def sync_episode(
 def sync_all_ready() -> tuple[int, int]:
     exported = 0
     unchanged = 0
+    proofs: dict[str, str] = {}
 
     for episode in ready_summary_episodes(
         load_episodes()
     ):
-        _, wrote = export_vault_summary(episode)
+        _, wrote = export_vault_summary(
+            episode,
+            on_synced=lambda key, content: proofs.__setitem__(key, summary_digest(content)),
+        )
 
         if wrote:
             exported += 1
         else:
             unchanged += 1
 
+    # Only a wholly successful sweep publishes a batch confirmation. A failed
+    # local write cannot be mistakenly counted as synced.
+    record_vault_sync_receipts(proofs)
     return exported, unchanged
 
 

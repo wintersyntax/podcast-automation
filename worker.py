@@ -6,6 +6,7 @@ import os
 from podcast_engine.human_review import (
     RecompileAuditPersistenceError,
     complete_recompile_request,
+    mark_correlated_recompile_failed,
 )
 from podcast_engine.pipeline import run_pipeline
 from podcast_engine.worker_control import (
@@ -50,7 +51,7 @@ def _require_completed_recompile_target(outcomes: list[dict], episode_key: str) 
             "Correlated recompile target episode outcome was not found exactly once"
         )
     status = matches[0].get("status")
-    if status not in {"completed", "waiting_for_summary_review_activation"}:
+    if status != "completed":
         raise RuntimeError(
             "Correlated recompile target episode did not complete the full pipeline"
         )
@@ -58,14 +59,43 @@ def _require_completed_recompile_target(outcomes: list[dict], episode_key: str) 
 
 def main() -> list[dict]:
     correlation = _recompile_correlation_from_environment()
+    try:
+        if correlation:
+            result = run_pipeline(
+                target_episode_key=correlation["episode_key"],
+            )
+        else:
+            result = run_pipeline()
+        if correlation:
+            _require_completed_recompile_target(result, correlation["episode_key"])
+    except Exception:
+        if correlation:
+            reason = (
+                "review_required"
+                if "result" in locals() and isinstance(result, list) and any(
+                    isinstance(outcome, dict)
+                    and outcome.get("status") == "review_required"
+                    and isinstance(outcome.get("episode"), dict)
+                    and outcome["episode"].get("episode_key") == correlation["episode_key"]
+                    for outcome in result
+                )
+                else "worker_exception"
+            )
+            try:
+                mark_correlated_recompile_failed(
+                    correlation["episode_key"],
+                    request_id=correlation["request_id"],
+                    review_generation=correlation["review_generation"],
+                    reason=reason,
+                )
+            except Exception:
+                LOGGER.warning(
+                    "Correlated recompile failure audit persistence deferred",
+                    extra={"episode_key": correlation["episode_key"]},
+                    exc_info=True,
+                )
+        raise
     if correlation:
-        result = run_pipeline(
-            target_episode_key=correlation["episode_key"],
-        )
-    else:
-        result = run_pipeline()
-    if correlation:
-        _require_completed_recompile_target(result, correlation["episode_key"])
         try:
             complete_recompile_request(
                 correlation["episode_key"],

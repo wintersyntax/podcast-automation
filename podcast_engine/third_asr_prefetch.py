@@ -41,6 +41,11 @@ PREFETCH_TIERS = frozenset({"B", "C"})
 PREFETCH_WORKERS = 3
 PREFETCH_MAX_ITEMS = 120
 PREFETCH_MAX_CONSECUTIVE_FAILURES = 5
+# Three cards reserve against the same episode budget ledger at once, so a
+# reservation can lose its generation race (BudgetConcurrencyError). Nothing
+# was reserved or claimed then, so the card is retried after a short jittered
+# wait instead of stopping the whole prefetch (2026-10-12: stopped after 5 of
+# 74 cards).
 PREFETCH_CONCURRENCY_RETRIES = 4
 PREFETCH_WALL_CLOCK_SECONDS = 900
 

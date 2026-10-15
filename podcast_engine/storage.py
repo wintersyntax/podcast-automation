@@ -296,15 +296,16 @@ def request_whisper_retranscription(episode_key):
     raise RuntimeError("episodes.json changed repeatedly while requesting re-transcription")
 
 
-def request_recompilation(episode_key):
+def request_recompilation(episode_key, *, from_states=("review_required",)):
     """Recompile one episode that is waiting in Human Review (TASK-131).
 
     Sets ``status.compiler`` back to ``ready`` (both sources present, not
     compiled), so the next Worker run compiles
     the existing canonical sources again with the current compiler and
     replaces the pending Human Review queue. Sources, transcripts and spend are
-    untouched; only episodes waiting in review are accepted. The write is
-    generation-conditional.
+    untouched; only episodes in ``from_states`` are accepted (by default those
+    waiting in review; TASK-124 also passes ``completed`` after correcting an
+    episode's recorded decisions). The write is generation-conditional.
     """
 
     for _ in range(3):
@@ -317,10 +318,10 @@ def request_recompilation(episode_key):
             raise ValueError(f"Expected exactly one episode {episode_key}, found {len(matches)}")
         episode = episodes[matches[0]]
         compiler_state = episode["status"]["compiler"].get("state")
-        if compiler_state != "review_required":
+        if compiler_state not in from_states:
             raise ValueError(
                 f"Episode {episode_key} has compiler state {compiler_state!r}; "
-                "only episodes waiting in Human Review can be recompiled"
+                f"only compiler states {sorted(from_states)} can be recompiled here"
             )
         episode["status"]["compiler"] = {"state": "ready", "updated_at": now_iso()}
         episode["updated_at"] = now_iso()
@@ -344,6 +345,9 @@ def update_episode(
     summary_metadata_file="KEEP",
     markdown_file="KEEP",
     apple_transcript_late_notified_at="KEEP",
+    duplicate_check="KEEP",
+    review_audio_deleted_at="KEEP",
+    whisper_deferred_since="KEEP",
 ):
     """
     Update episode state by its canonical episode key.
@@ -372,6 +376,8 @@ def update_episode(
                     if transcript_file:
                         episode["status"]["whisper"] = {"state": "ready", "updated_at": now_iso()}
                         episode["files"]["sources"]["whisper"]["text"] = transcript_file
+                        # TASK-145: a published transcript ends any deferral.
+                        episode.pop("whisper_deferred_since", None)
                         episode["status"]["compiler"] = {
                             "state": "ready"
                             if episode["files"]["sources"]["apple"].get("text")
@@ -418,6 +424,21 @@ def update_episode(
                     episode[
                         "apple_transcript_late_notified_at"
                     ] = apple_transcript_late_notified_at
+
+                if duplicate_check != "KEEP":
+                    # TASK-135: an episode recognized as a republished copy
+                    # of an earlier episode (or an operator's override).
+                    episode["duplicate_check"] = duplicate_check
+
+                if whisper_deferred_since != "KEEP":
+                    # TASK-145: first run that deferred this episode because
+                    # the transcription provider was unavailable.
+                    episode["whisper_deferred_since"] = whisper_deferred_since
+
+                if review_audio_deleted_at != "KEEP":
+                    # TASK-144: the stored review audio was removed once the
+                    # episode was finished.
+                    episode["review_audio_deleted_at"] = review_audio_deleted_at
 
 
 

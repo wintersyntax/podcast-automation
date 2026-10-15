@@ -18,6 +18,7 @@ from compiler.transcript import validate_resolver_response
 from .ai_budget import (
     STAGE_RESOLVER,
     STAGE_TRIAGE,
+    http_status_proves_no_generation,
     mark_budget_attempt_uncertain,
     reserve_budget_batch,
     settle_budget_attempt,
@@ -584,13 +585,6 @@ def _post_openrouter(
         ) as error:
             last_error = error
 
-            mark_budget_attempt_uncertain(
-                episode_key,
-                source_fingerprint,
-                attempt_id,
-                reason=_budget_uncertain_reason(error),
-            )
-
             status = (
                 error.response.status_code
                 if (
@@ -603,6 +597,22 @@ def _post_openrouter(
                 )
                 else None
             )
+
+            if http_status_proves_no_generation(status):
+                # TASK-128: rejected before generation, so nothing was charged.
+                settle_budget_attempt(
+                    episode_key,
+                    source_fingerprint,
+                    attempt_id,
+                    actual_usd=Decimal("0"),
+                )
+            else:
+                mark_budget_attempt_uncertain(
+                    episode_key,
+                    source_fingerprint,
+                    attempt_id,
+                    reason=_budget_uncertain_reason(error),
+                )
 
             retryable = (
                 isinstance(

@@ -18,7 +18,7 @@ from pathlib import Path
 
 WHISPER_MODEL_MANIFEST_SCHEMA_VERSION = 2
 WHISPER_PRODUCER_SCHEMA_VERSION = 2
-WHISPER_METADATA_SCHEMA_VERSION = 3
+WHISPER_METADATA_SCHEMA_VERSION = 4
 WHISPER_METADATA_SOURCE = "openrouter-whisper"
 
 MANIFEST_PATH = (
@@ -122,6 +122,35 @@ def current_whisper_producer() -> dict:
     }
 
 
+def review_audio_reference(metadata: object) -> dict | None:
+    """TASK-144: the stored copy of the transcribed audio, if well formed.
+
+    Schema 4 metadata names the exact audio its timestamps refer to; review
+    clips are cut from it, never from the RSS enclosure (which can differ on
+    every download when a host inserts ads dynamically).
+    """
+
+    if not isinstance(metadata, dict):
+        return None
+    reference = metadata.get("review_audio")
+    if not isinstance(reference, dict):
+        return None
+    path = reference.get("path")
+    digest = reference.get("sha256")
+    size = reference.get("bytes")
+    if (
+        not isinstance(path, str)
+        or not path.endswith("/sources/whisper/audio.mp3")
+        or not isinstance(digest, str)
+        or not digest.startswith("sha256:")
+        or not isinstance(size, int)
+        or isinstance(size, bool)
+        or size <= 0
+    ):
+        return None
+    return reference
+
+
 def whisper_metadata_matches_current_producer(
     metadata: object,
 ) -> bool:
@@ -137,6 +166,9 @@ def whisper_metadata_matches_current_producer(
         return False
 
     if not isinstance(metadata.get("segments"), list):
+        return False
+
+    if review_audio_reference(metadata) is None:
         return False
 
     producer = metadata.get("producer")

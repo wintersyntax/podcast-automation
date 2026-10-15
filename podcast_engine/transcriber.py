@@ -32,6 +32,7 @@ import requests
 
 from .ai_budget import (
     STAGE_WHISPER_TRANSCRIPTION,
+    http_status_proves_no_generation,
     mark_budget_attempt_uncertain,
     reserve_budget_batch,
     settle_budget_attempt,
@@ -991,10 +992,15 @@ def _stitch_chunk_overlap(
 
 
 def _clamp_small_word_backsteps(segments: list[dict]) -> int:
-    """Clamp minor backward word starts across stitched chunk boundaries.
+    """Clamp sub-tolerance backward word starts across the whole timeline.
 
-    Independent chunks can time the same speech slightly differently.
-    Larger regressions remain errors under the monotonicity validator.
+    The parser clamps them inside one response. At a chunk seam the stitcher
+    keeps the previous chunk's word whose midpoint is before the cut and the
+    next chunk's word whose midpoint is after it; the two chunks time the
+    same speech slightly differently, so the kept words can overlap by a few
+    hundredths of a second (2026-10-12: 0.03 s at 3602.40 s). Steps within
+    ``WORD_START_BACKSTEP_TOLERANCE_SECONDS`` are clamped; larger ones are
+    left for ``_validate_monotonic_timestamps`` to reject. Returns the count.
     """
 
     clamped = 0
@@ -1128,6 +1134,36 @@ def _language_hint(value: object) -> str | None:
     return LANGUAGE_NAME_CODES.get(text)
 
 
+def _encode_review_audio(audio_path: Path, destination: Path) -> dict:
+    """TASK-144: encode the whole transcribed audio once for review clips.
+
+    Same format as the request chunks (mono, manifest sample rate and
+    bitrate), decoded from the start of the file, so its timeline is the
+    timeline of every Whisper timestamp.
+    """
+
+    command = [
+        "ffmpeg", "-y", "-nostdin", "-hide_banner", "-loglevel", "error",
+        "-i", str(audio_path), "-map", "0:a:0", "-vn",
+        "-ac", str(AUDIO_CHANNELS), "-ar", str(AUDIO_SAMPLE_RATE),
+        "-b:a", f"{AUDIO_BITRATE_KBPS}k", str(destination),
+    ]
+    try:
+        subprocess.run(command, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as error:
+        detail = (error.stderr or error.stdout or str(error)).strip()
+        raise RuntimeError(f"FFmpeg review audio encoding failed: {detail}") from error
+    return {
+        "sha256": _audio_fingerprint(destination),
+        "bytes": destination.stat().st_size,
+        "duration": _probe_duration(destination),
+        "format": AUDIO_FORMAT,
+        "sample_rate": AUDIO_SAMPLE_RATE,
+        "channels": AUDIO_CHANNELS,
+        "bitrate_kbps": AUDIO_BITRATE_KBPS,
+    }
+
+
 def _audio_fingerprint(audio_path: Path) -> str:
     """Identify the exact downloaded enclosure bytes for budget accounting."""
 
@@ -1173,6 +1209,15 @@ def _request_payload(chunk: AudioChunk, language: str | None) -> dict:
 def _http_status(error: Exception) -> int | None:
     status = getattr(getattr(error, "response", None), "status_code", None)
     return status if isinstance(status, int) else None
+
+
+class WhisperProviderUnavailable(RuntimeError):
+    """TASK-145: the provider stayed unavailable after the bounded retries.
+
+    Timeouts, connection failures, HTTP 5xx and exhausted 429 waits are
+    transient. The Worker defers this episode to a later run and continues
+    with the others; nothing has been published for it.
+    """
 
 
 def _retryable(error: Exception) -> bool:
@@ -1273,13 +1318,22 @@ def _transcribe_chunk(
             response.raise_for_status()
             payload = response.json()
         except (requests.RequestException, ValueError) as error:
-            mark_budget_attempt_uncertain(
-                episode_key,
-                budget_fingerprint,
-                attempt_id,
-                reason=type(error).__name__,
-            )
             status = _http_status(error)
+            if http_status_proves_no_generation(status):
+                # TASK-128: rejected before transcription, so nothing was charged.
+                settle_budget_attempt(
+                    episode_key,
+                    budget_fingerprint,
+                    attempt_id,
+                    actual_usd=Decimal("0"),
+                )
+            else:
+                mark_budget_attempt_uncertain(
+                    episode_key,
+                    budget_fingerprint,
+                    attempt_id,
+                    reason=type(error).__name__,
+                )
             if status == 429 and rate_limit_retries < RATE_LIMIT_ATTEMPTS - 1:
                 delay = _rate_limit_delay_seconds(error, rate_limit_retries)
                 rate_limit_retries += 1
@@ -1293,7 +1347,12 @@ def _transcribe_chunk(
                 transient_retries += 1
                 time.sleep(RETRY_DELAY_SECONDS)
                 continue
-            raise RuntimeError(
+            failure = (
+                WhisperProviderUnavailable
+                if status == 429 or _retryable(error)
+                else RuntimeError
+            )
+            raise failure(
                 "OpenRouter Whisper transcription failed"
                 + (f" with HTTP {status}" if status is not None else "")
                 + f" ({type(error).__name__})"
@@ -1427,6 +1486,12 @@ def transcribe_audio(
             boundary["previous_words_removed"] + boundary["current_words_removed"]
             for boundary in stitch_boundaries
         )
+        source_paths = paths_for(episode_key)
+        review_audio_file = work_dir / f"audio.{AUDIO_FORMAT}"
+        review_audio = {
+            "path": source_paths["whisper_review_audio"],
+            **_encode_review_audio(audio_path, review_audio_file),
+        }
         metadata = {
             "schema_version": WHISPER_METADATA_SCHEMA_VERSION,
             "source": WHISPER_METADATA_SOURCE,
@@ -1442,6 +1507,7 @@ def transcribe_audio(
             "stitch_boundaries": stitch_boundaries,
             "chunk_diagnostics": chunk_diagnostics,
             "audio_fingerprint": budget_fingerprint,
+            "review_audio": review_audio,
             "billed_usd": str(billed_usd),
             "segments": metadata_segments,
         }
@@ -1450,7 +1516,12 @@ def transcribe_audio(
             encoding="utf-8",
         )
 
-        source_paths = paths_for(episode_key)
+        # The audio goes first: metadata that names it is only published
+        # once the object exists.
+        upload_path_to_gcs(
+            review_audio_file,
+            source_paths["whisper_review_audio"],
+        )
         text_gcs_path = upload_path_to_gcs(
             transcript_file,
             source_paths["whisper_text"],
