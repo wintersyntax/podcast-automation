@@ -13,7 +13,7 @@ from podcast_engine.review_web import PAGE, create_review_app
 
 def episode(key, compiler="review_required", summary="pending", published="2026-10-08"):
     return {
-        "episode_key": key, "podcast": "Iron Culture", "title": "Ep 391",
+        "episode_key": key, "podcast": "Example Strength Podcast", "title": "Demo Episode Seven",
         "published": published, "status": {
             "apple_transcript": {"state": "ready"},
             "whisper": {"state": "ready"},

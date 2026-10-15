@@ -48,8 +48,8 @@ class _Bucket:
 def _episode(key):
     return {
         "episode_key": key,
-        "podcast": "Iron Culture",
-        "podcast_id": "iron-culture",
+        "podcast": "Example Strength Podcast",
+        "podcast_id": "example-strength-podcast",
         "title": f"Episode {key}",
         "status": {"compiler": {"state": "completed"}},
     }

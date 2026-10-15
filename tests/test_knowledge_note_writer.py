@@ -23,8 +23,8 @@ ROOT = Path(__file__).resolve().parents[1]
 EPISODE = {
     "id": "episode-1",
     "episode_key": "episode-1",
-    "podcast": "Iron Culture",
-    "podcast_id": "iron-culture",
+    "podcast": "Example Strength Podcast",
+    "podcast_id": "example-strength-podcast",
     "category": "exercise_strength",
     "prompt": "strength",
     "title": "Ep 386 - Training Principles",
@@ -371,7 +371,7 @@ class SpendTrackingTests(unittest.TestCase):
         second["attempts"]["w1"]["settled_usd"] = "0.50"
         report = report_module.build_report(
             [ai_budget.spend_breakdown(_ledger()), ai_budget.spend_breakdown(second)],
-            {"a" * 24: {"podcast": "Iron Culture", "title": "Ep 1", "published": "2026-09-01"}},
+            {"a" * 24: {"podcast": "Example Strength Podcast", "title": "Ep 1", "published": "2026-09-01"}},
         )
         self.assertEqual(report["episodes"], 2)
         self.assertEqual(report["total_committed_usd"], "1.000000")
@@ -381,7 +381,7 @@ class SpendTrackingTests(unittest.TestCase):
             json_path, csv_path = report_module.write_outputs(report, Path(directory))
             header, first = csv_path.read_text().splitlines()[:2]
         self.assertIn("note_writer_usd", header)
-        self.assertIn("Iron Culture", first)
+        self.assertIn("Example Strength Podcast", first)
 
 
 class BudgetWiringTests(unittest.TestCase):

@@ -82,8 +82,8 @@ def _episode():
     return {
         "episode_key": KEY,
         "id": KEY,
-        "podcast": "Iron Culture",
-        "title": "Ep 391",
+        "podcast": "Example Strength Podcast",
+        "title": "Demo Episode Seven",
         "published": "Thu, 08 Oct 2026 14:58:00 +0000",
         "status": {"summary": {"state": "ready"}},
     }

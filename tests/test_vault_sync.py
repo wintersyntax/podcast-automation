@@ -48,8 +48,8 @@ class VaultSyncTests(unittest.TestCase):
 
             self.assertEqual(
                 destination.relative_to(Path(directory)).as_posix(),
-                "Podcasts/Strength/Iron Culture Strength/"
-                "2026-08-20 - Ep 386 Caffeine Creatine.md",
+                "Podcasts/Strength/Example Strength Podcast/"
+                "2026-08-20 - Demo Episode - Training Nutrition.md",
             )
 
     def test_existing_identical_summary_is_a_no_op(self):

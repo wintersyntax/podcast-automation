@@ -921,16 +921,16 @@ class TranscriberTests(unittest.TestCase):
             transcriber._validate_monotonic_timestamps(segments)
 
     def test_segment_join_step_of_a_tenth_of_a_second_is_clamped(self):
-        # Production Ep 391: "competition." placed at 27.6 s, the next
+        # Synthetic segment seam: the final word was placed at 27.6 s, the next
         # segment's "They" at 27.5 s.
         payload = {
             "segments": [
-                {"start": 20.0, "end": 27.5, "text": "the pure physique competition.", "avg_logprob": -0.1, "no_speech_prob": 0.0},
+                {"start": 20.0, "end": 27.5, "text": "the sample recording concluded.", "avg_logprob": -0.1, "no_speech_prob": 0.0},
                 {"start": 27.5, "end": 30.0, "text": "They were", "avg_logprob": -0.1, "no_speech_prob": 0.0},
             ],
             "words": [
-                {"word": "physique", "start": 26.88, "end": 27.2},
-                {"word": "competition.", "start": 27.6, "end": 27.6},
+                {"word": "recording", "start": 26.88, "end": 27.2},
+                {"word": "concluded.", "start": 27.6, "end": 27.6},
                 {"word": "They", "start": 27.5, "end": 28.3},
                 {"word": "were", "start": 28.3, "end": 28.46},
             ],
@@ -957,7 +957,7 @@ class TranscriberTests(unittest.TestCase):
         self.assertEqual(rebuilt["text"], "What's up, everybody?")
 
     def test_small_backward_step_at_a_chunk_seam_is_clamped(self):
-        # 2026-10-12 production: after stitching chunks 6 and 7 a word at
+        # Synthetic seam regression: after stitching chunks 6 and 7 a word at
         # 3602.40 s started 0.03 s before the previous chunk's last kept word.
         previous = [{"id": 0, "start": 3598.0, "end": 3602.9, "text": "a b", "words": [
             {"word": " a", "start": 3598.0, "end": 3600.0},
