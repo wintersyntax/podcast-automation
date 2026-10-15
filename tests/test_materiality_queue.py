@@ -65,6 +65,18 @@ class GroupTests(unittest.TestCase):
         self.assertEqual(queue.base_group(with_suggestion)["source"], "apple")
         self.assertEqual(queue.base_group(judged(2, "e-mail", "email", **either))["group"], "click_one")
 
+    def test_sponsor_reads_never_enter_the_control_sample(self):
+        ads = [
+            judged(i, f"sponsor read {i}", "", immaterial=True, route="rule", reason="advertisement",
+                   use="whisper", use_step="advertisement")
+            for i in (1, 2, 3)
+        ]
+        record = {"human_review": ads}
+        self.assertEqual(queue.control_sample_ids(record, "episode"), set())
+        groups = queue.materiality_groups(record, "episode", ads)
+        self.assertEqual({g["group"] for g in groups.values()}, {"settled"})
+        self.assertEqual({g["source"] for g in groups.values()}, {"whisper"})
+
     def test_control_sample_is_stable_ten_percent_with_a_minimum_and_no_spelling_cards(self):
         items = [settled(i) for i in range(1, 41)]
         spelling = judged(99, "e-mail", "email", immaterial=True, reason="same_letters", use="apple", use_step="fuller")
@@ -230,3 +242,68 @@ class WebTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReviewNotificationGroupTests(unittest.TestCase):
+    """TASK-133: the review email and Slack count the work by materiality group."""
+
+    GROUPS = {"settled": 39, "sample": 5, "click_one": 1, "proposal": 12, "full": 6}
+    EPISODE = {"podcast": "Revive Stronger", "title": "Your Body Changes", "episode_key": "k"}
+
+    def test_group_counts_follow_the_queue(self):
+        items = [settled(1), settled(2), judged(3, "squat", "squelch", immaterial=False,
+                                                reason="judge_not_unanimous", proposal="apple",
+                                                proposal_step="judge"),
+                 dict(card("x", "a", "b", "y"), id=4)]
+        counts = queue.materiality_group_counts({"human_review": items}, "e", items)
+        self.assertEqual(sum(counts.values()), 4)
+        self.assertEqual((counts["proposal"], counts["full"]), (1, 1))
+        self.assertEqual(counts["settled"] + counts["sample"], 2)
+        with patch.dict(os.environ, {queue.QUEUE_ENV: "off"}):
+            self.assertIsNone(queue.materiality_group_counts({"human_review": items}, "e", items))
+
+    def test_summary_line(self):
+        from podcast_engine.notifications import review_group_summary
+
+        self.assertEqual(
+            review_group_summary(self.GROUPS),
+            "24 need you: 18 quick cards (12 to confirm, 5 control sample, 1 click one) and 6 detailed. "
+            "39 settled by the filter, accepted with one click.",
+        )
+        self.assertNotIn("click one", review_group_summary(dict(self.GROUPS, click_one=0)))
+        self.assertIsNone(review_group_summary(None))
+        self.assertIsNone(review_group_summary({"settled": "x"}))
+        self.assertIsNone(review_group_summary(dict(self.GROUPS, full=-1)))
+
+    def test_email_and_slack_prefer_groups_over_tiers(self):
+        from podcast_engine.notifications import (
+            build_email_review_payload,
+            build_email_review_refreshed_payload,
+            build_slack_review_payload,
+        )
+
+        tiers = {"A": 22, "B": 23, "C": 12}
+        email = build_email_review_payload(self.EPISODE, 63, "https://r.test", tiers=tiers, groups=self.GROUPS)
+        self.assertIn("63 transcript differences. 24 need you", email["text"])
+        self.assertIn("24 need you", email["html"])
+        self.assertNotIn("tier A", email["text"])
+        refreshed = build_email_review_refreshed_payload(self.EPISODE, 60, 63, "https://r.test", groups=self.GROUPS)
+        self.assertIn("39 settled by the filter", refreshed["text"])
+        slack = build_slack_review_payload(self.EPISODE, 63, "https://r.test", tiers=tiers, groups=self.GROUPS)
+        self.assertIn("18 quick cards", str(slack))
+        # Without group counts the tier line stays.
+        fallback = build_email_review_payload(self.EPISODE, 57, "https://r.test", tiers=tiers)
+        self.assertIn("can be confirmed together in tier A", fallback["text"])
+
+    def test_pipeline_counts_degrade_to_none(self):
+        from podcast_engine import pipeline
+
+        with (
+            patch.object(pipeline, "load_review_record", side_effect=FileNotFoundError("x")),
+            patch("builtins.print"),
+        ):
+            self.assertIsNone(pipeline._review_group_counts({"episode_key": "k"}))
+        items = [settled(1)]
+        with patch.object(pipeline, "load_review_record", return_value={"human_review": items}):
+            counts = pipeline._review_group_counts({"episode_key": "k"})
+        self.assertEqual(sum(counts.values()), 1)

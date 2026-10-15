@@ -14,12 +14,12 @@ from podcast_engine.episode_identity import episode_key_for
 
 
 class EpisodeContractTests(unittest.TestCase):
-    feed_url = "https://feeds.example.com/example-strength.xml"
+    feed_url = "https://rss.libsyn.com/shows/161750/destinations/1065920.xml"
     guid = "9a8bcf36-a027-48bc-976e-d441e201ee45"
 
     def test_canonical_episode_url_normalizes_only_the_broken_libsyn_pattern(self):
-        broken = "https://example-strength.libsyn.com/ep-386-sleep-hypertrophy-and-creatine"
-        correct = "https://example-strength.libsyn.com/website/ep-386-sleep-hypertrophy-and-creatine"
+        broken = "https://ironculture.libsyn.com/ep-386-sleep-hypertrophy-and-creatine"
+        correct = "https://ironculture.libsyn.com/website/ep-386-sleep-hypertrophy-and-creatine"
 
         self.assertEqual(canonical_episode_url(broken), correct)
         self.assertEqual(canonical_episode_url(correct), correct)
@@ -34,23 +34,23 @@ class EpisodeContractTests(unittest.TestCase):
             {
                 "schema_version": SCHEMA_VERSION,
                 "id": "episode-1",
-                "link": "https://example-strength.libsyn.com/ep-386-sleep-hypertrophy-and-creatine",
+                "link": "https://ironculture.libsyn.com/ep-386-sleep-hypertrophy-and-creatine",
             }
         )
 
         self.assertEqual(
             record["link"],
-            "https://example-strength.libsyn.com/website/ep-386-sleep-hypertrophy-and-creatine",
+            "https://ironculture.libsyn.com/website/ep-386-sleep-hypertrophy-and-creatine",
         )
 
 
     def test_podcast_url_is_preserved(self):
         record = new_episode_record(
             episode_key="episode-1",
-            podcast="Example Nutrition Podcast",
-            podcast_id="example-nutrition",
-            feed_url="https://feeds.example.com/example-nutrition.xml",
-            podcast_url="https://example.com/nutrition-podcast/",
+            podcast="Revive Stronger",
+            podcast_id="revive-stronger",
+            feed_url="https://feeds.megaphone.fm/RSL5592678638",
+            podcast_url="https://revivestronger.com/podcast/",
             rss_guid="guid-1",
             title="Episode",
             published=None,
@@ -60,7 +60,7 @@ class EpisodeContractTests(unittest.TestCase):
 
         self.assertEqual(
             record["podcast_url"],
-            "https://example.com/nutrition-podcast/",
+            "https://revivestronger.com/podcast/",
         )
 
         partial_v3 = ensure_v3_record(
@@ -89,6 +89,7 @@ class EpisodeContractTests(unittest.TestCase):
             "apple_metadata": f"episodes/{key}/sources/apple/transcript.json",
             "whisper_text": f"episodes/{key}/sources/whisper/transcript.txt",
             "whisper_metadata": f"episodes/{key}/sources/whisper/transcript.json",
+            "whisper_review_audio": f"episodes/{key}/sources/whisper/audio.mp3",
             "compiled_text": f"episodes/{key}/compiled/transcript.txt",
             "compiler_report": f"episodes/{key}/compiled/report.json",
             "resolver_record": f"episodes/{key}/review/resolver.json",
@@ -104,8 +105,8 @@ class EpisodeContractTests(unittest.TestCase):
         source = {
             "episode": {
                 "episode_key": key,
-                "podcast": "Example Strength Podcast",
-                "podcast_id": "example-strength",
+                "podcast": "Iron Culture",
+                "podcast_id": "iron-culture",
                 "feed_url": self.feed_url,
                 "rss_guid": self.guid,
                 "title": "Ep 384 - Is Ultrasound Lying About Your Gains?",

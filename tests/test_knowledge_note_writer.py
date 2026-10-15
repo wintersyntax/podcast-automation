@@ -23,8 +23,8 @@ ROOT = Path(__file__).resolve().parents[1]
 EPISODE = {
     "id": "episode-1",
     "episode_key": "episode-1",
-    "podcast": "Example Strength Podcast",
-    "podcast_id": "example-strength",
+    "podcast": "Iron Culture",
+    "podcast_id": "iron-culture",
     "category": "exercise_strength",
     "prompt": "strength",
     "title": "Ep 386 - Training Principles",
@@ -237,8 +237,6 @@ class OrchestrationTests(unittest.TestCase):
                 return_value=b"fixture canonical source bytes",
             ), patch.object(
                 orchestration.note_writer, "generate", generate
-            ), patch.object(
-                orchestration.summary_review, "active_summary_review_preset", return_value=None
             ), patch(
                 "podcast_engine.ai_budget.episode_spend_summary",
                 side_effect=lambda key, fingerprint: ai_budget.spend_breakdown(_ledger(key, fingerprint)),
@@ -339,11 +337,12 @@ class OrchestrationTests(unittest.TestCase):
         )
         generate.assert_called_once()
 
-    def test_without_the_writer_preset_the_legacy_gate_still_applies(self):
+    def test_without_the_writer_preset_no_note_is_built(self):
         with patch.dict(os.environ, {"PODCAST_KNOWLEDGE_WRITER_PRESET": "  "}), patch.object(
-            orchestration.summary_review, "active_summary_review_preset", return_value=None
-        ), patch.object(orchestration.note_writer, "generate") as generate:
-            self.assertIsNone(orchestration.build_knowledge_note(EPISODE))
+            orchestration.note_writer, "generate"
+        ) as generate:
+            with self.assertRaisesRegex(RuntimeError, "PODCAST_KNOWLEDGE_WRITER_PRESET"):
+                orchestration.build_knowledge_note(EPISODE)
         generate.assert_not_called()
 
 
@@ -372,7 +371,7 @@ class SpendTrackingTests(unittest.TestCase):
         second["attempts"]["w1"]["settled_usd"] = "0.50"
         report = report_module.build_report(
             [ai_budget.spend_breakdown(_ledger()), ai_budget.spend_breakdown(second)],
-            {"a" * 24: {"podcast": "Example Strength Podcast", "title": "Ep 1", "published": "2026-09-01"}},
+            {"a" * 24: {"podcast": "Iron Culture", "title": "Ep 1", "published": "2026-09-01"}},
         )
         self.assertEqual(report["episodes"], 2)
         self.assertEqual(report["total_committed_usd"], "1.000000")
@@ -382,7 +381,7 @@ class SpendTrackingTests(unittest.TestCase):
             json_path, csv_path = report_module.write_outputs(report, Path(directory))
             header, first = csv_path.read_text().splitlines()[:2]
         self.assertIn("note_writer_usd", header)
-        self.assertIn("Example Strength Podcast", first)
+        self.assertIn("Iron Culture", first)
 
 
 class BudgetWiringTests(unittest.TestCase):

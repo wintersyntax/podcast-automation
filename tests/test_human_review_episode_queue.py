@@ -59,7 +59,7 @@ class HumanReviewEpisodeQueueTests(unittest.TestCase):
     def test_episode_api_includes_podcast_name(self):
         episode = {
             "episode_key": "episode-1",
-            "podcast": "Example Nutrition Podcast",
+            "podcast": "Revive Stronger",
             "title": "Example Episode",
             "status": {
                 "compiler": {
@@ -98,7 +98,7 @@ class HumanReviewEpisodeQueueTests(unittest.TestCase):
             [
                 {
                     "episode_key": "episode-1",
-                    "podcast": "Example Nutrition Podcast",
+                    "podcast": "Revive Stronger",
                     "title": "Example Episode",
                     "pending_count": 2,
                 }

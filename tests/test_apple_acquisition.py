@@ -199,6 +199,47 @@ class BearerTokenEarlyWarningTests(unittest.TestCase):
         emit.assert_not_called()
 
 
+class UnusableBearerTokenTests(unittest.TestCase):
+    """TASK-117: every unusable token raises AppleCredentialUnavailable and
+    emits apple_token_invalid, so the alert fires while the run continues."""
+
+    def _read_path(self, path):
+        import os
+        from podcast_engine import apple_acquisition
+
+        with patch.dict(os.environ, {"APPLE_PODCASTS_TOKEN_FILE": str(path)}), patch.object(
+            apple_acquisition, "emit_event"
+        ) as emit:
+            with self.assertRaises(apple_acquisition.AppleCredentialUnavailable) as raised:
+                apple_acquisition.read_bearer_token()
+        self.assertIsInstance(raised.exception, RuntimeError)
+        emit.assert_called_once()
+        self.assertEqual(emit.call_args.args[0], "apple_token_invalid")
+        return emit
+
+    def test_missing_file_empty_file_and_expired_token_are_credential_failures(self):
+        import base64, tempfile, time
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            emit = self._read_path(root / "missing.txt")
+            self.assertEqual(emit.call_args.kwargs["error_type"], "FileNotFoundError")
+
+            empty = root / "empty.txt"
+            empty.write_text("  \n", encoding="utf-8")
+            self._read_path(empty)
+
+            payload = base64.urlsafe_b64encode(
+                json.dumps({"exp": time.time() - 60}).encode()
+            ).decode().rstrip("=")
+            expired = root / "expired.txt"
+            expired.write_text(f"h.{payload}.s", encoding="utf-8")
+            emit = self._read_path(expired)
+            self.assertEqual(emit.call_args.kwargs["token_status"], "expired")
+            self.assertNotIn(payload, json.dumps(emit.call_args.kwargs))
+
+
 class _FakeBlob:
     def __init__(self, bucket, name):
         self.bucket = bucket

@@ -101,11 +101,18 @@ class UnitsTests(unittest.TestCase):
 
     def test_braced_quantities_are_converted_with_the_spoken_original(self):
         self.assertEqual(self.convert("gained {{50 lb}}")[0], "gained ~23 kg (said: 50 lb)")
-        self.assertEqual(self.convert("over {{200-230 lb}}")[0], "over ~91–100 kg (said: 200–230 lb)")
+        self.assertEqual(self.convert("over {{200-230 lb}}")[0], "over ~91–104 kg (said: 200–230 lb)")
         self.assertEqual(self.convert("{{1 g/lb}} daily")[0], "~2.2 g/kg (said: 1 g/lb) daily")
         self.assertEqual(self.convert("{{0.8 g per pound of bodyweight}}")[0], "~1.8 g/kg (said: 0.8 g per pound of bodyweight)")
         self.assertEqual(self.convert("{{6 feet}} tall")[0], "~1.8 m (said: 6 feet) tall")
         self.assertEqual(self.convert("{{1 gallon}} of water")[0], "~3.8 L (said: 1 gallon) of water")
+
+    def test_values_of_one_hundred_or_more_keep_whole_number_precision(self):
+        # v3 rounded 230 lb to "~100 kg" next to "about 106 kg" in the same sentence.
+        self.assertEqual(self.convert("peak of {{230 pounds}}")[0], "peak of ~104 kg (said: 230 pounds)")
+        self.assertEqual(self.convert("{{8 oz}} of rice")[0], "~227 g (said: 8 oz) of rice")
+        self.assertEqual(self.convert("{{205 lb}}")[0], "~93 kg (said: 205 lb)")
+        self.assertEqual(self.convert("{{2 gallons}}")[0], "~7.6 L (said: 2 gallons)")
 
     def test_compound_heights_are_converted_to_centimetre_precision(self):
         self.assertEqual(self.convert("{{6 feet 4 inches}} tall")[0], "~1.93 m (said: 6 feet 4 inches) tall")
@@ -179,10 +186,40 @@ class RenderTests(unittest.TestCase):
 
     def test_evidence_scale_labels_asserting_bullets_only(self):
         body = self.body()
-        self.assertIn("- **▰▰▰ Study** — The **2024** study used **0.35 g/kg**", body)
-        self.assertIn("- **▱▱▱ Opinion · unsure** — Creatine may partly explain", body)
-        self.assertIn("- **▰▱▱ One person** — Geoff puts a bench in front", body)
+        self.assertIn("- 🔬 **Study** — The **2024** study used **0.35 g/kg**", body)
+        self.assertIn("- 💬 **Opinion · unsure** — Creatine may partly explain", body)
+        self.assertIn("- 👤 **One person** — Geoff puts a bench in front", body)
+        # TASK-150: icon + word everywhere, also in the numbers table; the
+        # former ▰▱ meter is gone.
+        self.assertIn("| Acute creatine | 0.35 g/kg | 🔬 Study |", body)
+        self.assertNotIn("▰", body)
+        self.assertNotIn("▱", body)
         self.assertNotIn("🟢", body)
+
+    def test_protocol_evidence_line_uses_the_icon_and_word(self):
+        # TASK-150 regression: v5 added " · unsure" to the (icon, word) tuple
+        # and the free re-render failed with TypeError on hedged protocols.
+        def protocol(basis, hedged):
+            return {
+                "name": "Bench-assisted Nordic curl", "what": "Put a bench in front to catch the chest.",
+                "dose_parameters": "not stated", "when_for_whom": "Heavier lifters", "caveat": "not stated",
+                "basis": basis, "hedged": hedged, "anchor": "so I put a bench in front of me to catch my chest",
+            }
+
+        report = units.UnitReport()
+        lines = render._protocol_block(protocol("coaching_experience", True), report)
+        self.assertIn("> **Evidence:** 🏋️ Coaches · unsure", lines)
+        lines = render._protocol_block(protocol("personal_experience", False), report)
+        self.assertIn("> **Evidence:** 👤 One person", lines)
+        lines = render._protocol_block(protocol("none", True), report)
+        self.assertIn("> **Evidence:** not specified", lines)
+
+        note = _note()
+        note["sections"][1]["protocols"] = [protocol("research", True)]
+        checked, _ = checks.apply_checks(note, TRANSCRIPT)
+        body = render.render_body(checked)
+        self.assertIn("> **Evidence:** 🔬 Study · unsure", body)
+        self.assertNotIn("('", body)
 
     def test_si_is_rendered_by_python_with_the_original_unbolded(self):
         self.assertIn("**89 kg** at **~1.8 m** (said: 6 feet) and is now about **92 kg**.", self.body())
@@ -190,7 +227,7 @@ class RenderTests(unittest.TestCase):
     def test_sections_have_bottom_lines_and_studies_follow_the_fixed_order(self):
         body = self.body()
         self.assertIn("## Creatine and sleep\n*A high acute dose rescued cognition after sleep loss.*", body)
-        self.assertIn("- **▰▰▰ Study** — **Gordji-Nejad 2024** — RCT → **0.35 g/kg** rescued cognition after sleep deprivation. *Hosts:* Dose matters.", body)
+        self.assertIn("- 🔬 **Study** — **Gordji-Nejad 2024** — RCT → **0.35 g/kg** rescued cognition after sleep deprivation. *Hosts:* Dose matters.", body)
 
     def test_bold_does_not_swallow_commas_or_mixed_terms(self):
         report = units.UnitReport()

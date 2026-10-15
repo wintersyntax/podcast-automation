@@ -1,4 +1,5 @@
 import os
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -103,16 +104,76 @@ class HumanReviewTests(unittest.TestCase):
         self.assertEqual(long["duration"], 15.0)
         self.assertEqual(long["start"], 17.5)
 
-    def test_audio_clip_uses_rss_enclosure_and_ephemeral_storage(self):
+    def _review_audio_bucket(self, directory, *, review_audio, audio_bytes=b"transcribed audio"):
+        """Fake bucket with Whisper metadata and the stored review audio (TASK-144)."""
+
+        import hashlib as _hashlib
+        metadata = {"review_audio": review_audio} if review_audio is not None else {}
+        blobs = {
+            "episodes/episode-1/sources/whisper/transcript.json": json.dumps(metadata).encode(),
+            "episodes/episode-1/sources/whisper/audio.mp3": audio_bytes,
+        }
+        downloads = []
+
+        class Blob:
+            def __init__(self, name):
+                self.name = name
+
+            def download_as_bytes(self):
+                return blobs[self.name]
+
+            def download_to_filename(self, filename):
+                downloads.append(self.name)
+                Path(filename).write_bytes(blobs[self.name])
+
+        class Bucket:
+            def blob(self, name):
+                return Blob(name)
+
+        digest = "sha256:" + _hashlib.sha256(audio_bytes).hexdigest()
+        return Bucket(), downloads, digest
+
+    def test_audio_clip_uses_the_stored_transcribed_audio_not_the_rss_enclosure(self):
+        # TASK-144: Megaphone inserts different ads on every download, so the
+        # enclosure's timeline differs from the Whisper timestamps.
         episode = {"episode_key": "episode-1", "audio_url": "https://cdn.example.test/episode.mp3"}
-        with patch("podcast_engine.human_review.extract_audio_clip") as extract:
-            clip, _ = ensure_audio_clip(episode, review_item(), fingerprint="sha256:stable")
-        try:
-            self.assertEqual(extract.call_args.args[0], "https://cdn.example.test/episode.mp3")
+        with tempfile.TemporaryDirectory() as directory:
+            bucket, downloads, digest = self._review_audio_bucket(directory, review_audio=None)
+            reference = {"path": "episodes/episode-1/sources/whisper/audio.mp3", "sha256": digest, "bytes": 17}
+            bucket, downloads, digest = self._review_audio_bucket(directory, review_audio=reference)
+            with (
+                patch("podcast_engine.human_review.get_bucket", return_value=bucket),
+                patch("podcast_engine.human_review.REVIEW_AUDIO_CACHE_DIR", Path(directory) / "cache"),
+                patch("podcast_engine.human_review.extract_audio_clip") as extract,
+            ):
+                clip, _ = ensure_audio_clip(episode, review_item(), fingerprint="sha256:stable")
+                clip.unlink(missing_ok=True)
+                again, _ = ensure_audio_clip(episode, review_item(), fingerprint="sha256:stable")
+                again.unlink(missing_ok=True)
+            source = extract.call_args.args[0]
+            self.assertNotEqual(str(source), episode["audio_url"])
+            self.assertEqual(Path(source).read_bytes(), b"transcribed audio")
+            self.assertEqual(downloads, ["episodes/episode-1/sources/whisper/audio.mp3"])  # cached
             self.assertTrue(str(clip).endswith(".wav"))
             self.assertNotIn(Path.cwd(), clip.parents)
-        finally:
-            clip.unlink(missing_ok=True)
+
+    def test_audio_clip_is_unavailable_without_a_matching_stored_copy(self):
+        from podcast_engine.human_review import ReviewAudioUnavailable
+        episode = {"episode_key": "episode-1", "audio_url": "https://cdn.example.test/episode.mp3"}
+        with tempfile.TemporaryDirectory() as directory:
+            for reference in (None, {"path": "episodes/episode-1/sources/whisper/audio.mp3",
+                                     "sha256": "sha256:" + "0" * 64, "bytes": 17}):
+                with self.subTest(reference=reference):
+                    bucket, _, _ = self._review_audio_bucket(directory, review_audio=reference)
+                    with (
+                        patch("podcast_engine.human_review.get_bucket", return_value=bucket),
+                        patch("podcast_engine.human_review.REVIEW_AUDIO_CACHE_DIR", Path(directory) / "cache"),
+                        patch("podcast_engine.human_review.extract_audio_clip") as extract,
+                    ):
+                        with self.assertRaises(ReviewAudioUnavailable):
+                            ensure_audio_clip(episode, review_item(), fingerprint="sha256:stable")
+                    extract.assert_not_called()
+                    self.assertEqual(list((Path(directory) / "cache").glob("*.mp3")), [])
 
     def test_third_asr_request_and_response_contract(self):
         with tempfile.TemporaryDirectory() as directory:
