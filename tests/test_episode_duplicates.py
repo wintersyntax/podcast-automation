@@ -20,8 +20,8 @@ VOCABULARY = (
 ).split()
 
 PODCAST = {
-    "id": "iron-culture",
-    "name": "Iron Culture",
+    "id": "example-strength-podcast",
+    "name": "Example Strength Podcast",
     "rss": "https://example.test/iron.xml",
 }
 
@@ -49,7 +49,7 @@ def asr_variant(words: list[str], seed: int, *, error_rate: float = 0.05) -> str
     return " ".join(out)
 
 
-def episode(key, *, podcast="Iron Culture", feed="https://example.test/iron.xml",
+def episode(key, *, podcast="Example Strength Podcast", feed="https://example.test/iron.xml",
             published, whisper=True, apple=False, compiler="blocked"):
     record = new_episode_record(
         episode_key=key,
@@ -94,7 +94,7 @@ class FindOriginalTests(unittest.TestCase):
     def setUp(self):
         speech = conversation(10)
         self.original = episode(
-            "orig", podcast="Revive Stronger", feed="https://example.test/rs.xml",
+            "orig", podcast="Example Fitness Podcast", feed="https://example.test/rs.xml",
             published="Sat, 03 Oct 2026 13:00:00 -0000", apple=True, compiler="review_required",
         )
         self.bonus = episode("bonus", published="Tue, 06 Oct 2026 15:00:00 +0000")
@@ -110,7 +110,7 @@ class FindOriginalTests(unittest.TestCase):
     def test_later_copy_names_the_earlier_episode(self):
         finding = dup.find_original(self.bonus, [self.original, self.bonus], self.read)
         self.assertEqual(finding["original_episode_key"], "orig")
-        self.assertEqual(finding["original_podcast"], "Revive Stronger")
+        self.assertEqual(finding["original_podcast"], "Example Fitness Podcast")
         self.assertGreaterEqual(finding["containment"], dup.MIN_CONTAINMENT)
 
     def test_the_earlier_episode_is_never_the_duplicate(self):

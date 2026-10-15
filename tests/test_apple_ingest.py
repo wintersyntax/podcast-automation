@@ -11,7 +11,7 @@ from podcast_engine.episode_identity import episode_key_for
 
 
 class AppleIngestTests(unittest.TestCase):
-    feed_url = "https://rss.libsyn.com/shows/161750/destinations/1065920.xml"
+    feed_url = "https://rss.example.test/feeds/demo.xml"
     guid = "9a8bcf36-a027-48bc-976e-d441e201ee45"
 
     def test_gcs_completion_ingests_both_apple_files_and_updates_index(self):
@@ -223,11 +223,11 @@ class AppleIngestTests(unittest.TestCase):
     def _apple_episode(self, key):
         return {
             "episode_key": key,
-            "podcast": "Iron Culture",
-            "podcast_id": "iron-culture",
+            "podcast": "Example Strength Podcast",
+            "podcast_id": "example-strength-podcast",
             "feed_url": self.feed_url,
             "rss_guid": self.guid,
-            "title": "Ep 384 - Is Ultrasound Lying About Your Gains?",
+            "title": "Demo Episode - Understanding Exercise Research",
         }
 
 

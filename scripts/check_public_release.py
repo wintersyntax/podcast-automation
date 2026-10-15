@@ -30,9 +30,9 @@ RULES = (
     ("PEM private key", re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----")),
     ("production GCS bucket", re.compile(r"podcast-worker-data-[0-9]+")),
     ("production GCP project", re.compile(r"podcast-ai-[0-9]+")),
-    ("production review host", re.compile(r"review[.]podcastops[.]link", re.I)),
+    ("production organization domain", re.compile(r"podcastops[.]link", re.I)),
     ("real macOS user path", re.compile(r"/Users/(?!YOUR_USER(?:/|\\b))[A-Za-z0-9._-]+/")),
-    ("personal runner identity", re.compile("Petars" + "-MacBook" + "-Air", re.I)),
+    ("personal runner identity", re.compile(r"[A-Za-z][A-Za-z0-9_-]*-MacBook-(?:Air|Pro)", re.I)),
     ("personal email", re.compile(r"[A-Za-z0-9._%+-]+@gmail[.]com", re.I)),
 )
 BINARY_SUFFIXES = {".png", ".gif", ".jpg", ".jpeg", ".webp", ".pdf", ".zip", ".ico"}

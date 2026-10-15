@@ -15,8 +15,9 @@ class PublicReleaseTests(unittest.TestCase):
     def test_credentials_and_real_identity_rejected(self):
         secret = "sk-" + "or-v1-" + "x" * 32
         self.assertTrue(text_problems(secret))
-        self.assertTrue(text_problems("review." + "podcastops.link"))
+        self.assertTrue(text_problems("review." + "podcastops" + ".link"))
         self.assertTrue(text_problems("/Users/" + "real-user/projects/code"))
+        self.assertTrue(text_problems("Sample" + "-MacBook-" + "Air"))
         self.assertFalse(text_problems("/Users/YOUR_USER/project"))
         self.assertFalse(text_problems("REVIEW_ALLOWED_EMAIL=reviewer@example.com"))
 

@@ -23,7 +23,7 @@ def canonical_episode_url(value: str | None) -> str | None:
 
     parsed = urlsplit(value)
     if (
-        parsed.hostname != "ironculture.libsyn.com"
+        parsed.hostname != "example-strength.libsyn.com"
         or not parsed.path.startswith("/")
         or parsed.path.startswith("/website/")
         or parsed.path.count("/") != 1

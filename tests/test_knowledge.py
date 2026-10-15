@@ -56,8 +56,8 @@ class KnowledgePayloadTests(unittest.TestCase):
         return {
             "id": "episode-1",
             "episode_key": "episode-1",
-            "podcast": "Iron Culture",
-            "podcast_id": "iron-culture",
+            "podcast": "Example Strength Podcast",
+            "podcast_id": "example-strength-podcast",
             "category": "exercise_strength",
             "prompt": "strength",
             "title": "Ep 386 - Training Principles",
@@ -237,16 +237,16 @@ class KnowledgeEntryPointTests(unittest.TestCase):
 
 class FrontmatterTests(unittest.TestCase):
     def test_tags_are_slugged_and_deduplicated_without_changing_topics_or_people(self):
-        episode = {"podcast": "Iron Culture", "podcast_id": "iron-culture"}
+        episode = {"podcast": "Example Strength Podcast", "podcast_id": "example-strength-podcast"}
         metadata_values = {
             "topics": ["Sleep Quality"],
             "people": ["Eric Helms"],
-            "tags": ["Iron Culture", "iron-culture", " Sleep ", "creatine", "CREATINE", "", "  "],
+            "tags": ["Example Strength Podcast", "example-strength-podcast", " Sleep ", "creatine", "CREATINE", "", "  "],
         }
 
         frontmatter = build_frontmatter(episode, metadata_values, "date")
 
-        self.assertEqual(frontmatter["tags"], ["iron-culture", "sleep", "creatine"])
+        self.assertEqual(frontmatter["tags"], ["example-strength-podcast", "sleep", "creatine"])
         self.assertEqual(frontmatter["topics"], ["Sleep Quality"])
         self.assertEqual(frontmatter["people"], ["Eric Helms"])
 
@@ -262,7 +262,7 @@ class FrontmatterTests(unittest.TestCase):
     def test_frontmatter_uses_canonical_source_url(self):
         rendered = render(
             {
-                "link": "https://ironculture.libsyn.com/ep-386-sleep-hypertrophy-and-creatine",
+                "link": "https://example-strength.libsyn.com/demo-sleep-hypertrophy-topic",
             },
             {"topics": [], "people": [], "tags": []},
             "date",
@@ -270,16 +270,16 @@ class FrontmatterTests(unittest.TestCase):
         )
 
         self.assertIn(
-            "source_url: https://ironculture.libsyn.com/website/ep-386-sleep-hypertrophy-and-creatine",
+            "source_url: https://example-strength.libsyn.com/website/demo-sleep-hypertrophy-topic",
             rendered,
         )
 
     def test_frontmatter_uses_podcast_url_without_inventing_source_url(self):
         rendered = render(
             {
-                "podcast": "Revive Stronger",
-                "podcast_id": "revive-stronger",
-                "podcast_url": "https://revivestronger.com/podcast/",
+                "podcast": "Example Fitness Podcast",
+                "podcast_id": "example-fitness-podcast",
+                "podcast_url": "https://example.test/podcast/",
                 "link": None,
             },
             {"topics": [], "people": [], "tags": []},
@@ -288,7 +288,7 @@ class FrontmatterTests(unittest.TestCase):
         )
 
         self.assertIn(
-            "podcast_url: https://revivestronger.com/podcast/",
+            "podcast_url: https://example.test/podcast/",
             rendered,
         )
         self.assertNotIn("source_url:", rendered)
@@ -296,9 +296,9 @@ class FrontmatterTests(unittest.TestCase):
     def test_frontmatter_omits_missing_podcast_url(self):
         rendered = render(
             {
-                "podcast": "Iron Culture",
-                "podcast_id": "iron-culture",
-                "link": "https://ironculture.libsyn.com/website/episode",
+                "podcast": "Example Strength Podcast",
+                "podcast_id": "example-strength-podcast",
+                "link": "https://example-strength.libsyn.com/website/episode",
             },
             {"topics": [], "people": [], "tags": []},
             "date",
@@ -310,7 +310,7 @@ class FrontmatterTests(unittest.TestCase):
     def test_frontmatter_is_deterministic_and_omits_missing_optional_fields(self):
         episode = {
             "episode_key": "key-1",
-            "podcast": "Iron Culture",
+            "podcast": "Example Strength Podcast",
             "title": "Ep 386 - Training Principles",
             "published": "Tue, 12 Aug 2026 14:00:00 +0000",
             "status": {"compiler": {"state": "completed"}},
@@ -324,7 +324,7 @@ class FrontmatterTests(unittest.TestCase):
         self.assertIn("episode: 386", rendered)
         self.assertIn("published: '2026-08-12'", rendered)
         self.assertIn("transcript_reviewed: true", rendered)
-        self.assertNotIn("- iron-culture", rendered)
+        self.assertNotIn("- example-strength-podcast", rendered)
         self.assertNotIn("podcast_id:", rendered)
         self.assertNotIn("source_url:", rendered)
         self.assertEqual(
@@ -338,7 +338,7 @@ class FrontmatterTests(unittest.TestCase):
 
 
     def test_note_opens_with_the_episode_title_as_h1(self):
-        episode = {"episode_key": "key-1", "podcast": "Revive Stronger",
+        episode = {"episode_key": "key-1", "podcast": "Example Fitness Podcast",
                    "title": "Your Body Changes How You Should Train -  Jonathan Warren"}
         rendered = render(episode, {"topics": [], "people": [], "tags": []}, "date", "\n## TL;DR\n\nText.\n")
         frontmatter_end = rendered.index("\n---\n") + len("\n---\n")
