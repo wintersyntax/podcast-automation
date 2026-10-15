@@ -246,6 +246,11 @@ def create_demo_app() -> Flask:
     # body starts after the closing frontmatter delimiter.
     body = body.lstrip("\n")
     metadata = frontmatter.build_frontmatter(EPISODE, METADATA, "2026-10-01T18:00:00Z")
+    # The Markdown includes an H1; the HTML preview already renders its title
+    # as the card heading, so do not print that first line a second time.
+    heading = f'# {metadata["title"]}\n'
+    if body.startswith(heading):
+        body = body[len(heading):].lstrip("\n")
 
     @app.get("/")
     def home():
@@ -284,12 +289,12 @@ strong{{color:#0f172a}} code{{background:#eef2f7;padding:.1rem .25rem;border-rad
 <div class="legend">
   <div class="legend-title">Evidence basis</div>
   <div class="legend-grid">
-    <span><b>▰▰▰ Study</b> — research cited</span>
-    <span><b>▰▰▱ Coaches</b> — multi-client coaching experience</span>
-    <span><b>▰▱▱ One person</b> — personal experience</span>
-    <span><b>▱▱▱ Opinion</b> — speculation / hypothesis</span>
+    <span><b>🔬 Study</b> — research cited</span>
+    <span><b>🏋️ Coaches</b> — multi-client coaching experience</span>
+    <span><b>👤 One person</b> — personal experience</span>
+    <span><b>💬 Opinion</b> — speculation / hypothesis</span>
   </div>
-  <div class="legend-note">“· unsure” means the speaker hedged the claim. The meter records stated basis, not independent truth or study-quality verification.</div>
+  <div class="legend-note">“· unsure” means the speaker hedged the claim. The icons identify the basis stated by the speaker; they are not an independent truth or study-quality rating.</div>
 </div>
 {_body_to_html(body)}
 <a class="raw" href="/raw.md">View exact generated Markdown →</a>
