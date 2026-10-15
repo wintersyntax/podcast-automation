@@ -23,7 +23,7 @@ def canonical_episode_url(value: str | None) -> str | None:
 
     parsed = urlsplit(value)
     if (
-        parsed.hostname != "example-strength.libsyn.com"
+        parsed.hostname != "ironculture.libsyn.com"
         or not parsed.path.startswith("/")
         or parsed.path.startswith("/website/")
         or parsed.path.count("/") != 1
@@ -69,27 +69,15 @@ def paths_for(episode_key: str) -> dict[str, str]:
         "apple_metadata": f"{root}/sources/apple/transcript.json",
         "whisper_text": f"{root}/sources/whisper/transcript.txt",
         "whisper_metadata": f"{root}/sources/whisper/transcript.json",
+        # TASK-144: the exact audio the Whisper source was made from, for
+        # review clips (feeds with dynamic ad insertion serve another file).
+        "whisper_review_audio": f"{root}/sources/whisper/audio.mp3",
         "compiled_text": f"{root}/compiled/transcript.txt",
         "compiler_report": f"{root}/compiled/report.json",
         "resolver_record": f"{root}/review/resolver.json",
         "summary_body": f"{root}/summary/body.md",
         "summary_metadata": f"{root}/summary/metadata.json",
         "summary": f"{root}/summary/summary.md",
-    }
-
-
-def summary_review_artifact_paths(episode_key: str, review_id: str) -> dict[str, str]:
-    """Return immutable artifact paths for one summary-review attempt."""
-
-    root = f"episodes/{episode_key}/summary/reviews/{review_id}/"
-    return {
-        "root": root,
-        "draft": root + "draft.md",
-        "final": root + "final.md",
-        "review": root + "review.json",
-        "transcript_index": root + "transcript-span-index.json",
-        "draft_index": root + "draft-block-index.json",
-        "risk_inventory": root + "risk-inventory.json",
     }
 
 

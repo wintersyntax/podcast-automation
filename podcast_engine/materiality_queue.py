@@ -8,8 +8,11 @@ falls into one group:
               reviewer accepts all of them with one explicit click;
 ``sample``    a settled card drawn into the random control sample (10 %, at
               least two per episode, never cards that only spell the same
-              letters or numbers differently): confirmed one by one;
-``click_one`` immaterial, but nothing decided which reading to keep;
+              letters or numbers differently, never sponsor reads):
+              confirmed one by one;
+``click_one`` immaterial, but nothing decided which reading to keep (since
+              ``materiality-v5`` only readings of equal length without a
+              judge majority);
 ``proposal``  material, with a preselected reading the reviewer confirms or
               changes card by card (never in bulk);
 ``full``      everything else -- numbers that differ, material cards without
@@ -37,7 +40,9 @@ GROUPS = ("settled", "sample", "click_one", "proposal", "full")
 SAMPLE_SHARE = 0.10
 SAMPLE_MIN = 2
 # Same letters or the same numbers written differently: nothing to check.
-NO_SAMPLE_REASONS = frozenset({"same_letters", "number_format"})
+# Sponsor reads are dropped in the background and never shown as a card
+# (user decision 2026-10-14).
+NO_SAMPLE_REASONS = frozenset({"same_letters", "number_format", "advertisement"})
 SOURCES = ("apple", "whisper")
 
 
@@ -59,6 +64,11 @@ def current_evidence(item: dict) -> dict | None:
 
 def base_group(item: dict) -> dict:
     """Group a card on its own evidence, before the control sample is drawn."""
+
+    # A recovered historical partial focus needs an explicit full-span
+    # human choice. Never let stale advisory evidence put it in quick/bulk.
+    if item.get("legacy_focus_recovery"):
+        return {"group": "full", "source": None, "step": None, "reason": "legacy_focus_recovery"}
 
     evidence = current_evidence(item)
     if evidence is None:
@@ -122,3 +132,14 @@ def materiality_groups(record: dict, episode_key: str, items: list[dict]) -> dic
             group = {**group, "group": "sample"}
         groups[item.get("id")] = group
     return groups
+
+
+def materiality_group_counts(record: dict, episode_key: str, items: list[dict]) -> dict[str, int] | None:
+    """How many of the given pending cards fall into each group; None when the queue is off."""
+
+    if not queue_enabled():
+        return None
+    counts = {group: 0 for group in GROUPS}
+    for group in materiality_groups(record, episode_key, items).values():
+        counts[group["group"]] = counts.get(group["group"], 0) + 1
+    return counts

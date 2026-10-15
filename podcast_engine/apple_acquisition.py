@@ -54,6 +54,15 @@ def _token_path() -> Path:
     return DEFAULT_TOKEN_PATH
 
 
+class AppleCredentialUnavailable(RuntimeError):
+    """TASK-117: the mounted Apple token cannot be used.
+
+    Only Apple acquisition has to wait: the pipeline keeps the episode
+    retryable and the run continues with Whisper, compiler and note work.
+    ``apple_token_invalid`` has already been emitted for the alert.
+    """
+
+
 def read_bearer_token() -> str:
     """Read the Apple bearer token without logging or exposing it."""
 
@@ -62,8 +71,13 @@ def read_bearer_token() -> str:
     try:
         token = path.read_text(encoding="utf-8").strip()
     except OSError as error:
-        raise RuntimeError(
-            f"Could not read Apple bearer token from {path}: {error}"
+        emit_event(
+            "apple_token_invalid",
+            "Mounted Apple bearer token file could not be read.",
+            error_type=type(error).__name__,
+        )
+        raise AppleCredentialUnavailable(
+            f"Could not read Apple bearer token from {path}: {type(error).__name__}"
         ) from error
 
     if not token:
@@ -71,7 +85,7 @@ def read_bearer_token() -> str:
             "apple_token_invalid",
             "Mounted Apple bearer token file is empty.",
         )
-        raise RuntimeError(
+        raise AppleCredentialUnavailable(
             f"Apple bearer token file is empty: {path}"
         )
 
@@ -83,7 +97,7 @@ def read_bearer_token() -> str:
             "Mounted Apple bearer token is not usable.",
             token_status=token_status["status"],
         )
-        raise RuntimeError("Mounted Apple bearer token is not usable.")
+        raise AppleCredentialUnavailable("Mounted Apple bearer token is not usable.")
 
     if token_status["remaining_seconds"] <= TOKEN_EARLY_WARNING_SECONDS:
         emit_event(

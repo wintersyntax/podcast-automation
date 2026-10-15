@@ -30,7 +30,7 @@ from difflib import SequenceMatcher
 from .review_tiers import _scoped_text
 from .third_asr_window import _scope_contexts, anchored_third_asr_window
 
-MATERIALITY_POLICY_VERSION = "materiality-v3"
+MATERIALITY_POLICY_VERSION = "materiality-v5"
 CONTEXT_CHARS = 300
 _RULE_CONTEXT_TOKENS = 12
 
@@ -67,6 +67,14 @@ MAX_FUNCTION_WORD_DIFFERENCE = 8
 # the other reading has at most a third of them.
 LONG_ONE_SIDED_WORDS = 25
 # Sponsor reads that one source carries and the other does not (dynamic ads).
+# A sponsor read is recognised by its marker words, or -- whatever it says --
+# by time: an Apple-only stretch whose place on the Whisper timeline (the
+# audio we transcribed and keep for review) is at most this long. Speech of
+# 25+ words needs about ten seconds of audio, so it was never in that file:
+# the enclosure Apple transcribed carried a different ad (TASK-133, user
+# decision 2026-10-14: ads never reach the reviewer). Speech that Whisper
+# skipped still occupies its seconds of audio and stays with the reviewer.
+ABSENT_FROM_AUDIO_MAX_SECONDS = 2.0
 AD_MARKERS = (
     "brought to you by", "sponsored by", "promo code", "use code", "terms apply",
     "subject to credit approval",
@@ -189,6 +197,69 @@ def number_canonical(text: str | None) -> list[str]:
     return _number_words_to_digits(_strip_fillers(_number_format_tokens(text)))
 
 
+# ------------------------------------------------------------ number values
+# The numbers a reading says, in order, whatever words surround them. Two
+# readings with the same values do not dispute a number, so the rest of the
+# card goes through the ordinary rule and judge (user decision 2026-10-14):
+# "58" / "fifty-eight", "1944" / "nineteen forty four", "$800" / "eight
+# hundred dollar", "2200, 2300" / "twenty two hundred, twenty three hundred".
+# Still conservative: "110" never equals "a hundred, hundred ten", "25" never
+# equals "twenty, twenty-five", and a unit only counts right after a number.
+
+_VALUE_SEGMENTS = re.compile(r"(?<!\d)[,;]|[,;](?!\d)")
+_VALUE_UNITS = frozenset({"percent", "kg", "lb", "s"})
+# "nineteen forty four" is a year; "twenty seventeen" stays ambiguous ("20, 17"),
+# like the number-format rule, so it keeps the card with the reviewer.
+_YEAR_CENTURIES = frozenset({"11", "12", "13", "14", "15", "16", "17", "18", "19"})
+
+
+def _value_tokens(segment: str) -> list[str]:
+    tokens = _strip_fillers(_number_format_tokens(segment))
+    spoken: list[str] = []
+    for index, token in enumerate(tokens):
+        previous = tokens[index - 1] if index else None
+        # "hundred percent" says one hundred, like "a hundred percent".
+        if token in _NUMBER_SCALES and not (
+            previous == "a" or previous in _NUMBER_UNITS or previous in _NUMBER_TENS or (previous or "x")[0].isdigit()
+        ):
+            spoken.append("a")
+        spoken.append(token)
+    digits = _number_words_to_digits(spoken)
+    merged: list[str] = []
+    index = 0
+    while index < len(digits):
+        token = digits[index]
+        following = digits[index + 1] if index + 1 < len(digits) else ""
+        # A spoken year: "nineteen forty four" -> 19 44 -> 1944, "nineteen forties" -> 1940 s.
+        if token in _YEAR_CENTURIES and len(following) == 2 and following.isdigit() and following[0] != "0":
+            merged.append(token + following)
+            index += 2
+            continue
+        merged.append(token)
+        index += 1
+    values: list[str] = []
+    for index, token in enumerate(merged):
+        if token[0].isdigit():
+            values.append(token)
+        elif token in _VALUE_UNITS and index and merged[index - 1][0].isdigit():
+            values.append(token)
+    return values
+
+
+def number_values(text: str | None) -> list[str]:
+    """The numbers (and a unit right after one) a reading says, in order."""
+
+    text = unicodedata.normalize("NFKC", text or "")
+    return [value for segment in _VALUE_SEGMENTS.split(text) for value in _value_tokens(segment)]
+
+
+def same_number_values(apple: str | None, whisper: str | None) -> bool:
+    """Both readings say the same numbers in the same order (at least one)."""
+
+    values = number_values(apple)
+    return any(value[0].isdigit() for value in values) and values == number_values(whisper)
+
+
 def same_numbers_written_differently(apple: str | None, whisper: str | None) -> bool:
     """Both readings say exactly the same words and numbers, only written differently."""
 
@@ -278,13 +349,37 @@ def materiality_inputs(item: dict) -> dict | None:
             left, right = split[0], split[1]
             break
     window = anchored_third_asr_window(item) if isinstance(item.get("third_asr"), dict) else None
-    return {
+    inputs = {
         "apple": apple,
         "whisper": whisper,
         "left": left[-CONTEXT_CHARS:],
         "right": right[:CONTEXT_CHARS],
         "third": window["text"] if window else None,
     }
+    seconds = _whisper_seconds_for_apple_stretch(item, inputs)
+    if seconds is not None:
+        # Present only for an Apple-only long stretch; other cards keep
+        # exactly the inputs they had.
+        inputs["whisper_seconds"] = seconds
+    return inputs
+
+
+def _whisper_seconds_for_apple_stretch(item: dict, inputs: dict) -> float | None:
+    """Whisper-timeline seconds at the place of a long Apple-only stretch.
+
+    Only for a full-scope card (the timestamps describe the whole card) whose
+    Apple reading is a long stretch Whisper (nearly) lacks. For an empty
+    Whisper reading the two timestamps are the neighbouring words' edges, so
+    the value is the room the audio leaves for the stretch.
+    """
+
+    focus = item.get("focus") if isinstance(item.get("focus"), dict) else {}
+    if focus.get("scope") == "partial" or _one_sided_long(inputs) != "apple":
+        return None
+    start, end = item.get("whisper_start_timestamp"), item.get("whisper_end_timestamp")
+    if isinstance(start, bool) or isinstance(end, bool) or not all(isinstance(v, (int, float)) for v in (start, end)):
+        return None
+    return round(abs(float(end) - float(start)), 2)
 
 
 def has_number(inputs: dict) -> bool:
@@ -306,13 +401,22 @@ def _one_sided_long(inputs: dict) -> str | None:
 
 
 def advertisement_source(inputs: dict) -> str | None:
-    """The source whose long one-sided stretch is a sponsor read, if any."""
+    """The source whose long one-sided stretch is a sponsor read, if any.
+
+    Either it names a sponsor (marker words), or it is an Apple-only stretch
+    with no room for it in the audio Whisper transcribed.
+    """
 
     longer = _one_sided_long(inputs)
     if longer is None:
         return None
     text = unicodedata.normalize("NFKC", inputs[longer] or "").casefold()
-    return longer if any(marker in text for marker in AD_MARKERS) else None
+    if any(marker in text for marker in AD_MARKERS):
+        return longer
+    seconds = inputs.get("whisper_seconds")
+    if longer == "apple" and isinstance(seconds, (int, float)) and seconds <= ABSENT_FROM_AUDIO_MAX_SECONDS:
+        return longer
+    return None
 
 
 def rule_verdict(inputs: dict) -> tuple[str, str]:
@@ -321,9 +425,11 @@ def rule_verdict(inputs: dict) -> tuple[str, str]:
     ``route`` is ``"advertisement"`` (one reading is a sponsor read the other
     lacks; ``reason`` names the reading to keep, ``use_apple`` or
     ``use_whisper``), ``"immaterial"`` (the rule settles the card),
-    ``"reviewer"`` (numbers -- unless both readings say the same numbers
-    written differently -- and long stretches only one source has: never
-    automatic) or ``"judge"`` (the rule cannot tell).
+    ``"reviewer"`` (numbers that differ -- readings saying the same numbers
+    written differently are settled, and readings saying the same numbers
+    amid other different words go on like a card without numbers -- and
+    long stretches only one source has: never automatic) or ``"judge"``
+    (the rule cannot tell).
     """
 
     ad = advertisement_source(inputs)
@@ -333,7 +439,9 @@ def rule_verdict(inputs: dict) -> tuple[str, str]:
     if any(is_number_token(token) for token in apple + whisper):
         if same_numbers_written_differently(inputs["apple"], inputs["whisper"]):
             return "immaterial", "number_format"
-        return "reviewer", "number"
+        if not same_number_values(inputs["apple"], inputs["whisper"]):
+            return "reviewer", "number"
+        # The same numbers: the rest of the card is judged like any other.
     if _one_sided_long(inputs) is not None:
         return "reviewer", "one_sided_long"
     if "".join(apple) == "".join(whisper):

@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 from datetime import datetime
 from html import escape
 from zoneinfo import ZoneInfo
 
-from google.api_core.exceptions import PreconditionFailed
 import requests
 
 
@@ -55,6 +53,40 @@ def review_tier_summary(tiers: dict | None) -> str | None:
     )
 
 
+def review_group_summary(groups: dict | None) -> str | None:
+    """TASK-133: the work the review page shows, by materiality group.
+
+    ``groups`` counts pending cards per group (``settled``, ``sample``,
+    ``click_one``, ``proposal``, ``full``); None or malformed counts give None
+    and the caller falls back to the tier line.
+    """
+
+    if not isinstance(groups, dict):
+        return None
+    try:
+        settled, sample, click_one, proposal, full = (
+            int(groups.get(group, 0)) for group in ("settled", "sample", "click_one", "proposal", "full")
+        )
+    except (TypeError, ValueError):
+        return None
+    if min(settled, sample, click_one, proposal, full) < 0:
+        return None
+    quick = sample + click_one + proposal
+    parts = [f"{proposal} to confirm", f"{sample} control sample"]
+    if click_one:
+        parts.append(f"{click_one} click one")
+    return (
+        f"{quick + full} need you: {quick} quick cards ({', '.join(parts)}) and {full} detailed. "
+        f"{settled} settled by the filter, accepted with one click."
+    )
+
+
+def review_work_summary(*, groups: dict | None = None, tiers: dict | None = None) -> str | None:
+    """The materiality-group line when known, else the TASK-126 tier line."""
+
+    return review_group_summary(groups) or review_tier_summary(tiers)
+
+
 def build_slack_review_payload(
     episode: dict,
     pending_count: int,
@@ -62,6 +94,7 @@ def build_slack_review_payload(
     *,
     triage_unavailable: int = 0,
     tiers: dict | None = None,
+    groups: dict | None = None,
 ) -> dict:
     """Build the Slack Block Kit message for a human-review queue."""
 
@@ -108,8 +141,8 @@ def build_slack_review_payload(
                             f"*Needs review*\n"
                             f"{count} transcript {difference_label}"
                             + (
-                                f"\n{review_tier_summary(tiers)}"
-                                if review_tier_summary(tiers)
+                                f"\n{review_work_summary(groups=groups, tiers=tiers)}"
+                                if review_work_summary(groups=groups, tiers=tiers)
                                 else ""
                             )
                         ),
@@ -281,6 +314,7 @@ def send_slack_review_notification(
     webhook_url: str | None = None,
     triage_unavailable: int = 0,
     tiers: dict | None = None,
+    groups: dict | None = None,
 ) -> bool:
     """Send one Slack review notification.
 
@@ -294,6 +328,7 @@ def send_slack_review_notification(
         review_url,
         triage_unavailable=triage_unavailable,
         tiers=tiers,
+        groups=groups,
     )
 
     return _send_slack_payload(
@@ -557,6 +592,7 @@ def build_email_review_payload(
     review_url: str,
     *,
     tiers: dict | None = None,
+    groups: dict | None = None,
 ) -> dict:
     """Build initial Human Review email."""
     count = int(pending_count)
@@ -573,9 +609,12 @@ def build_email_review_payload(
         f"{count} transcript {label} "
         "need human review."
     )
-    tier_line = review_tier_summary(tiers)
-    if tier_line:
-        detail = f"{detail} {tier_line}"
+    group_line = review_group_summary(groups)
+    work_line = group_line or review_tier_summary(tiers)
+    if group_line:
+        detail = f"{count} transcript {label}. {group_line}"
+    elif work_line:
+        detail = f"{detail} {work_line}"
 
     return {
         "subject": (
@@ -606,6 +645,7 @@ def build_email_review_refreshed_payload(
     review_url: str,
     *,
     tiers: dict | None = None,
+    groups: dict | None = None,
 ) -> dict:
     """Build email for a changed Human Review queue."""
     previous = int(previous_pending_count)
@@ -626,9 +666,9 @@ def build_email_review_refreshed_payload(
         f"{previous} to {current} transcript "
         f"{label}."
     )
-    tier_line = review_tier_summary(tiers)
-    if tier_line:
-        detail = f"{detail} {tier_line}"
+    work_line = review_work_summary(groups=groups, tiers=tiers)
+    if work_line:
+        detail = f"{detail} {work_line}"
 
     return {
         "subject": (
@@ -649,310 +689,6 @@ def build_email_review_refreshed_payload(
             detail=detail,
             review_url=review_url,
         ),
-    }
-
-
-_STALLED_REVIEW_IDENTITY_FIELDS = (
-    "episode_key",
-    "transcript_sha256",
-    "draft_sha256",
-    "review_policy_version",
-    "review_preset",
-)
-
-
-def summary_review_stalled_email_notification_key(
-    review_input_identity: dict,
-    diagnostics: dict,
-) -> str | None:
-    """Return one dedupe key for the current stalled-review streak."""
-
-    if not isinstance(review_input_identity, dict):
-        raise ValueError("Summary-review email identity must be an object")
-
-    identity = {}
-    for field in _STALLED_REVIEW_IDENTITY_FIELDS:
-        value = review_input_identity.get(field)
-        if not isinstance(value, str) or not value:
-            raise ValueError(
-                f"Summary-review email identity {field} is invalid"
-            )
-        identity[field] = value
-
-    if not isinstance(diagnostics, dict):
-        raise ValueError("Summary-review diagnostics must be an object")
-
-    state = diagnostics.get("state")
-    failure_count = diagnostics.get("failure_count")
-    if (
-        state != "stalled"
-        or not isinstance(failure_count, int)
-        or isinstance(failure_count, bool)
-        or failure_count < 2
-    ):
-        return None
-
-    first_failure_at = diagnostics.get("first_failure_at")
-    if not isinstance(first_failure_at, str) or not first_failure_at:
-        raise ValueError(
-            "Stalled summary-review diagnostics require first_failure_at"
-        )
-
-    encoded = json.dumps(
-        {
-            "identity": identity,
-            "first_failure_at": first_failure_at,
-        },
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return "sha256:" + hashlib.sha256(encoded).hexdigest()
-
-
-def _build_summary_review_stalled_email_html(
-    *,
-    podcast: str,
-    title: str,
-    failure_count: int,
-    stage_label: str,
-    explanation: str,
-    podcastops_url: str,
-) -> str:
-    podcast = escape(podcast)
-    title = escape(title)
-    stage_label = escape(stage_label)
-    explanation = escape(explanation)
-    podcastops_url = escape(podcastops_url, quote=True)
-
-    return f"""<!doctype html>
-<html>
-<head>
-<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-</head>
-<body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif;color:#111827;">
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
-       style="background:#f3f4f6;padding:36px 14px;">
-<tr><td align="center">
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
-       style="max-width:600px;background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;">
-<tr><td style="padding:36px;">
-<div style="font-size:12px;line-height:18px;letter-spacing:1.6px;font-weight:700;color:#6b7280;margin-bottom:22px;">
-PODCAST OPS
-</div>
-<h1 style="margin:0 0 24px;font-size:26px;line-height:34px;color:#111827;">
-Summary review stalled
-</h1>
-<div style="font-size:14px;line-height:22px;font-weight:700;color:#374151;margin-bottom:4px;">
-{podcast}
-</div>
-<div style="font-size:17px;line-height:26px;color:#111827;margin-bottom:26px;">
-{title}
-</div>
-<div style="font-size:14px;line-height:22px;color:#374151;margin-bottom:24px;">
-<strong>Failure count:</strong> {failure_count}<br>
-<strong>Stage:</strong> {stage_label}<br>
-{explanation}<br>
-Canonical note preserved.
-</div>
-<table role="presentation" cellspacing="0" cellpadding="0" border="0">
-<tr><td style="background:#111827;border-radius:9px;">
-<a href="{podcastops_url}"
-   style="display:inline-block;padding:13px 21px;font-size:14px;line-height:20px;font-weight:700;color:#ffffff;text-decoration:none;">
-Open in PodcastOps
-</a>
-</td></tr>
-</table>
-<div style="border-top:1px solid #eeeeee;margin-top:32px;padding-top:20px;font-size:12px;line-height:19px;color:#9ca3af;">
-Automated notification from Podcast Ops
-</div>
-</td></tr>
-</table>
-</td></tr>
-</table>
-</body>
-</html>"""
-
-
-def build_email_summary_review_stalled_payload(
-    episode: dict,
-    diagnostics: dict,
-    podcastops_url: str,
-) -> dict:
-    """Build the bounded operator email for a stalled summary review."""
-
-    if not isinstance(diagnostics, dict):
-        raise ValueError("Summary-review diagnostics must be an object")
-    if diagnostics.get("state") != "stalled":
-        raise ValueError("Summary-review stalled email requires stalled state")
-
-    failure_count = diagnostics.get("failure_count")
-    if (
-        not isinstance(failure_count, int)
-        or isinstance(failure_count, bool)
-        or failure_count < 2
-    ):
-        raise ValueError(
-            "Summary-review stalled email requires at least two failures"
-        )
-
-    latest_failure = diagnostics.get("latest_failure")
-    if not isinstance(latest_failure, dict):
-        raise ValueError(
-            "Summary-review stalled email requires latest failure diagnostics"
-        )
-
-    stage = latest_failure.get("stage")
-    explanation = latest_failure.get("explanation")
-    if not isinstance(stage, str) or not stage:
-        raise ValueError("Summary-review stalled email stage is invalid")
-    if not isinstance(explanation, str) or not explanation:
-        raise ValueError(
-            "Summary-review stalled email explanation is invalid"
-        )
-
-    if diagnostics.get("canonical_note_preserved") is not True:
-        raise ValueError(
-            "Summary-review stalled email requires preserved canonical note"
-        )
-
-    if not isinstance(podcastops_url, str) or not podcastops_url.strip():
-        raise ValueError("PodcastOps URL is required")
-
-    podcast, title = _email_episode_identity(episode)
-    stage_label = stage.replace("_", " ").title()
-    podcastops_url = podcastops_url.strip()
-
-    return {
-        "subject": f"Summary review stalled: {podcast} — {title}",
-        "text": (
-            "PODCAST OPS\n\n"
-            "Summary review stalled\n\n"
-            f"{podcast}\n"
-            f"{title}\n\n"
-            f"Failure count: {failure_count}\n"
-            f"Stage: {stage_label}\n"
-            f"{explanation}\n"
-            "Canonical note preserved.\n\n"
-            f"Open in PodcastOps: {podcastops_url}\n"
-        ),
-        "html": _build_summary_review_stalled_email_html(
-            podcast=podcast,
-            title=title,
-            failure_count=failure_count,
-            stage_label=stage_label,
-            explanation=explanation,
-            podcastops_url=podcastops_url,
-        ),
-    }
-
-
-def send_email_summary_review_stalled_notification(
-    *,
-    bucket,
-    episode: dict,
-    review_input_identity: dict,
-    diagnostics: dict,
-    podcastops_url: str,
-) -> dict:
-    """Send at most one stalled-review email per durable pre-send claim."""
-
-    notification_key = summary_review_stalled_email_notification_key(
-        review_input_identity,
-        diagnostics,
-    )
-    if notification_key is None:
-        return {
-            "status": "not_eligible",
-            "notification_key": None,
-            "marker_path": None,
-        }
-
-    identity = {
-        field: review_input_identity[field]
-        for field in _STALLED_REVIEW_IDENTITY_FIELDS
-    }
-    episode_key = identity["episode_key"]
-    if not isinstance(episode, dict) or episode.get("episode_key") != episode_key:
-        raise ValueError(
-            "Summary-review stalled email episode identity does not match"
-        )
-
-    digest = notification_key.split(":", 1)[1]
-    marker_path = (
-        f"episodes/{episode_key}/summary/review_notifications/"
-        f"stalled_email/{digest}.json"
-    )
-    marker = {
-        "episode_key": episode_key,
-        "first_failure_at": diagnostics["first_failure_at"],
-        "notification_key": notification_key,
-        "notification_type": "summary_review_stalled_email",
-        "review_input_identity": identity,
-    }
-    marker_text = (
-        json.dumps(
-            marker,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        + "\n"
-    )
-    marker_bytes = marker_text.encode("utf-8")
-    blob = bucket.blob(marker_path)
-
-    if blob.exists():
-        if blob.download_as_bytes() != marker_bytes:
-            raise RuntimeError(
-                f"summary-review stalled email marker conflict: {marker_path}"
-            )
-        return {
-            "status": "already_claimed",
-            "notification_key": notification_key,
-            "marker_path": marker_path,
-        }
-
-    payload = build_email_summary_review_stalled_payload(
-        episode,
-        diagnostics,
-        podcastops_url,
-    )
-
-    try:
-        blob.upload_from_string(
-            marker_text,
-            content_type="application/json",
-            if_generation_match=0,
-        )
-    except PreconditionFailed as error:
-        if not blob.exists():
-            raise RuntimeError(
-                "summary-review stalled email claim failed without durable marker"
-            ) from error
-        if blob.download_as_bytes() != marker_bytes:
-            raise RuntimeError(
-                f"summary-review stalled email marker conflict: {marker_path}"
-            ) from error
-        return {
-            "status": "already_claimed",
-            "notification_key": notification_key,
-            "marker_path": marker_path,
-        }
-
-    if not _send_email_payload(episode, payload):
-        blob.delete()
-        return {
-            "status": "delivery_failed",
-            "notification_key": notification_key,
-            "marker_path": marker_path,
-        }
-
-    return {
-        "status": "sent",
-        "notification_key": notification_key,
-        "marker_path": marker_path,
     }
 
 
@@ -978,7 +714,7 @@ def _send_email_payload(
 
     from_address = os.environ.get(
         "PODCAST_REVIEW_EMAIL_FROM",
-        "notifications@example.com",
+        "notifications@podcastops.link",
     ).strip()
 
     from_name = (
@@ -1072,6 +808,7 @@ def send_email_review_notification(
     review_url: str,
     *,
     tiers: dict | None = None,
+    groups: dict | None = None,
 ) -> bool:
     """Send non-fatal email for a new review queue."""
     return _send_email_payload(
@@ -1081,6 +818,7 @@ def send_email_review_notification(
             pending_count,
             review_url,
             tiers=tiers,
+            groups=groups,
         ),
     )
 
@@ -1092,6 +830,7 @@ def send_email_review_refreshed_notification(
     review_url: str,
     *,
     tiers: dict | None = None,
+    groups: dict | None = None,
 ) -> bool:
     """Send non-fatal email for a refreshed review queue."""
     return _send_email_payload(
@@ -1102,5 +841,6 @@ def send_email_review_refreshed_notification(
             pending_count,
             review_url,
             tiers=tiers,
+            groups=groups,
         ),
     )

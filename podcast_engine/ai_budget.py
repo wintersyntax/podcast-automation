@@ -93,9 +93,6 @@ THIRD_ASR_BUDGET_RECONCILIATION_CLASSIFICATIONS = frozenset(
     {"legacy_current_generation", "previous_source_generation"}
 )
 
-_ATTEMPT_STATES = frozenset({"reserved", "settled", "released", "uncertain"})
-_SETTLEABLE_STATES = frozenset({"reserved", "uncertain"})
-
 # TASK-076 Task 5: canonical stage-id vocabulary for every episode-AI-budget
 # attempt. transcript resolver/triage already run before assisted Third ASR
 # "Prepare assisted evidence" is ever offered, so by the time
@@ -108,12 +105,14 @@ _SETTLEABLE_STATES = frozenset({"reserved", "uncertain"})
 STAGE_RESOLVER = "resolver"
 STAGE_TRIAGE = "triage"
 STAGE_THIRD_ASR = "third_asr"
+# Retired knowledge stages (TASK-146): no code spends under them any more,
+# but historical ledgers still record their attempts, so they stay valid
+# attempt stages for reading and reporting.
 STAGE_SUMMARY = "summary"
 STAGE_METADATA = "metadata"
 STAGE_SUMMARY_REVIEW = "summary_review"
-# TASK-118: the single-pass knowledge-note writer, which replaces
-# summary + summary_review + metadata when PODCAST_KNOWLEDGE_WRITER_PRESET
-# is configured.
+# TASK-118: the single-pass knowledge-note writer, the only knowledge stage
+# since TASK-146 retired summary + summary_review + metadata.
 STAGE_NOTE_WRITER = "note_writer"
 # TASK-125: the Whisper source is transcribed through OpenRouter before the
 # source generation exists, so its attempts live in a ledger keyed by the
@@ -145,12 +144,27 @@ _DOWNSTREAM_RESERVE_ELIGIBLE_STAGES = frozenset(
     {
         STAGE_RESOLVER,
         STAGE_TRIAGE,
-        STAGE_SUMMARY,
-        STAGE_METADATA,
-        STAGE_SUMMARY_REVIEW,
         STAGE_NOTE_WRITER,
     }
 )
+
+# TASK-128: OpenRouter answers these statuses before any generation starts
+# (malformed request, authentication, permission/moderation, unknown model,
+# invalid parameters), so such an attempt cannot have been charged and settles
+# at zero. Every other failure -- 408, 429, 5xx, transport errors, unreadable
+# bodies -- stays uncertain and keeps counting against the cap.
+NO_GENERATION_HTTP_STATUSES = frozenset({400, 401, 403, 404, 422})
+
+
+def http_status_proves_no_generation(status: object) -> bool:
+    """True only for an HTTP status that proves nothing was generated."""
+
+    return (
+        isinstance(status, int)
+        and not isinstance(status, bool)
+        and status in NO_GENERATION_HTTP_STATUSES
+    )
+
 
 _ATTEMPT_STATES = frozenset({"reserved", "settled", "released", "uncertain"})
 _SETTLEABLE_STATES = frozenset({"reserved", "uncertain"})
@@ -1415,8 +1429,8 @@ def required_downstream_reserve(
     very next call with no stale state left over from an earlier one.
 
     ``stage_pending`` must supply a bool for every stage in
-    _DOWNSTREAM_RESERVE_ELIGIBLE_STAGES (transcript resolver/triage,
-    summary, metadata, summary review, note writer) -- no implicit
+    _DOWNSTREAM_RESERVE_ELIGIBLE_STAGES (transcript resolver/triage and
+    the note writer) -- no implicit
     default, and no ``third_asr`` key, since Third ASR is optional evidence, never a
     protected downstream stage. A stage that is not pending (whether it
     was never applicable, or already produced current output for this
@@ -1425,8 +1439,8 @@ def required_downstream_reserve(
 
     A pending stage's own contribution must be supplied by the caller as
     an already-derived non-negative Decimal upper-bound reservation (see
-    resolve_required_downstream_reserve_usd and each knowledge-stage
-    module's own worst-case payload builder) -- this function never
+    resolve_required_downstream_reserve_usd and the note writer's own
+    worst-case payload builder) -- this function never
     guesses a percentage of the cap or of remaining headroom for a stage
     whose real bound it was not given; a missing or malformed bound for a
     pending stage fails closed rather than silently treating it as zero.
@@ -1492,8 +1506,8 @@ def _resolve_stage_bound_or_fail_closed(
     """Resolve one stage's current preset once, then build ITS worst-case
     payload from that exact same resolved snapshot.
 
-    TASK-076 Task 7: the real per-call payload for summary/metadata/summary
-    review is built directly from a resolved PresetProvenance's own config
+    TASK-076 Task 7: the real per-call payload for a knowledge stage is
+    built directly from a resolved PresetProvenance's own config
     (never the mutable ``@preset/<slug>`` alias) -- so a worst-case payload
     built without that same snapshot would measure a stale, shorter shape
     and under-reserve. ``worst_case_payload_builder`` is called with the
@@ -1532,23 +1546,20 @@ def resolve_required_downstream_reserve_usd(
 ) -> Decimal:
     """Network-resolving counterpart to required_downstream_reserve.
 
-    Resolves live current pricing/preset evidence only for the stages this
-    orchestrator knows how to bound -- summary, metadata, summary review
-    and the TASK-118 note writer -- and only when the caller marks them
-    pending. Transcript
-    resolver and triage are always treated as already-settled here: by
-    the time downstream-reserve protection matters (assisted Third ASR's
-    "Prepare assisted evidence", during Human Review), resolver and
-    triage have already run for this episode generation, so they are
-    never pending at this call site. This function does not guess their
-    bound if a future caller ever marks them pending; it fails closed
-    instead (see the check below), same as an unresolvable preset.
+    Resolves live current pricing/preset evidence only for the stage this
+    orchestrator knows how to bound -- the TASK-118 note writer -- and only
+    when the caller marks it pending. Transcript resolver and triage are
+    always treated as already-settled here: by the time downstream-reserve
+    protection matters (assisted Third ASR's "Prepare assisted evidence",
+    during Human Review), resolver and triage have already run for this
+    episode generation, so they are never pending at this call site. This
+    function does not guess their bound if a future caller ever marks them
+    pending; it fails closed instead (see the check below), same as an
+    unresolvable preset.
 
-    A stage inactive for this deployment (summary review with no
-    SUMMARY_REVIEW_PRESET_ENV configured, or the note writer with no
-    NOTE_WRITER_PRESET_ENV configured) contributes zero without any
-    network call, exactly like an already-cached/settled stage -- both
-    are simply "not pending" from the pure planner's point of view.
+    A note writer with no NOTE_WRITER_PRESET_ENV configured contributes zero
+    without any network call, exactly like an already-cached/settled stage
+    -- both are simply "not pending" from the pure planner's point of view.
 
     Any resolution failure (unverified/stale/malformed preset or pricing
     evidence) raises DownstreamReserveError rather than silently
@@ -1556,14 +1567,6 @@ def resolve_required_downstream_reserve_usd(
     optional purchase it would otherwise fail to protect against, not be
     treated as "no money needed".
     """
-
-    # TASK-076 Task 7: imported locally, not at module level -- these
-    # knowledge modules import stage identifiers back from this module
-    # (STAGE_SUMMARY/STAGE_METADATA/STAGE_SUMMARY_REVIEW), so a top-level
-    # import here would be circular. This function is the only caller.
-    from .knowledge import metadata as knowledge_metadata
-    from .knowledge import summary as knowledge_summary
-    from .knowledge import summary_review as knowledge_summary_review
 
     stage_pending = dict(stage_pending)
     if stage_pending.get(STAGE_RESOLVER) or stage_pending.get(STAGE_TRIAGE):
@@ -1577,52 +1580,15 @@ def resolve_required_downstream_reserve_usd(
 
     stage_reservation_usd: dict[str, Decimal] = {}
 
-    if stage_pending.get(STAGE_SUMMARY, False):
-        stage_reservation_usd[STAGE_SUMMARY] = _resolve_stage_bound_or_fail_closed(
-            knowledge_summary.summary_preset(),
-            knowledge_summary.worst_case_openrouter_payload,
-            api_key=api_key,
-            transport=transport,
-            verified_at=verified_at,
-            now=now,
-        )
-
-    if stage_pending.get(STAGE_METADATA, False):
-        stage_reservation_usd[STAGE_METADATA] = _resolve_stage_bound_or_fail_closed(
-            knowledge_metadata.metadata_preset(),
-            knowledge_metadata.worst_case_openrouter_payload,
-            api_key=api_key,
-            transport=transport,
-            verified_at=verified_at,
-            now=now,
-        )
-
-    if stage_pending.get(STAGE_SUMMARY_REVIEW, False):
-        active_slug = knowledge_summary_review.active_summary_review_preset()
-        if active_slug is None:
-            # Not activated for this deployment: same as "not pending" for
-            # the pure planner -- no network call, contributes zero.
-            stage_pending[STAGE_SUMMARY_REVIEW] = False
-        else:
-            stage_reservation_usd[STAGE_SUMMARY_REVIEW] = (
-                _resolve_stage_bound_or_fail_closed(
-                    active_slug,
-                    knowledge_summary_review.worst_case_openrouter_payload,
-                    api_key=api_key,
-                    transport=transport,
-                    verified_at=verified_at,
-                    now=now,
-                    call_multiplier=knowledge_summary_review.WORST_CASE_MODEL_CALLS_PER_CASE,
-                )
-            )
-
     if stage_pending.get(STAGE_NOTE_WRITER, False):
+        # Imported locally, not at module level: the writer imports the
+        # stage identifiers back from this module, so a top-level import
+        # here would be circular. This function is the only caller.
         from .knowledge.notes_v3 import writer as knowledge_note_writer
 
         writer_slug = knowledge_note_writer.note_writer_preset()
         if writer_slug is None:
-            # Not activated for this deployment: contributes zero, exactly
-            # like an inactive summary reviewer above.
+            # Not configured for this deployment: contributes zero.
             stage_pending[STAGE_NOTE_WRITER] = False
         else:
             stage_reservation_usd[STAGE_NOTE_WRITER] = (

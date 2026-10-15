@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from compiler.review_policy import batch_recommendation, classify_review_anomaly
 from compiler.transcript import (
@@ -25,7 +26,10 @@ from .human_review import (
     link_recompile_result_generation,
     review_generation_fingerprint,
     review_queue_fingerprint,
+    review_queue_fingerprint_version,
+    REVIEW_QUEUE_FINGERPRINT_SCHEMA_VERSION,
     validated_human_resolutions,
+    human_replay_diagnostics,
 )
 from .worker_control import (
     RECOMPILE_EPISODE_KEY_ENV,
@@ -962,6 +966,7 @@ def _difference_review_record(
     reason: str,
     *,
     resolver_item: dict | None = None,
+    source_mapping: dict | None = None,
     alignment=None,
 ) -> dict:
     """Return one compact but useful human-review record."""
@@ -1022,10 +1027,31 @@ def _difference_review_record(
     }
 
     if isinstance(resolver_item, dict):
+        # Resolver payloads are anonymized as source_a/source_b. Mapping
+        # directly from nonexistent focus_apple/whisper keys stored a partial
+        # scope with two null texts, which stranded existing review cards.
+        scope = resolver_item.get("focus_scope", "full")
+        mapping = source_mapping if isinstance(source_mapping, dict) else {}
+        source_a = mapping.get("source_a")
+        source_b = mapping.get("source_b")
+        if {source_a, source_b} == {"apple", "whisper"}:
+            apple_key = "focus_source_a_text" if source_a == "apple" else "focus_source_b_text"
+            whisper_key = "focus_source_a_text" if source_a == "whisper" else "focus_source_b_text"
+            apple_focus = resolver_item.get(apple_key)
+            whisper_focus = resolver_item.get(whisper_key)
+        else:
+            apple_focus = whisper_focus = None
+        if scope == "partial" and not (
+            isinstance(apple_focus, str) and apple_focus
+            and isinstance(whisper_focus, str) and whisper_focus
+            and apple_focus.casefold() in item["apple_text"].casefold()
+            and whisper_focus.casefold() in item["whisper_text"].casefold()
+        ):
+            raise ValueError("Partial review focus lacks valid Apple/Whisper source mapping")
         item["focus"] = {
-            "scope": resolver_item.get("focus_scope", "full"),
-            "apple_text": resolver_item.get("focus_apple_text"),
-            "whisper_text": resolver_item.get("focus_whisper_text"),
+            "scope": scope,
+            "apple_text": apple_focus,
+            "whisper_text": whisper_focus,
         }
 
     if alignment is not None:
@@ -1236,6 +1262,7 @@ def _human_review_items(
             difference,
             reasons[difference_id],
             resolver_item=resolver_items.get(difference_id),
+            source_mapping=resolver_batch.get("source_mappings", {}).get(str(difference_id)),
             alignment=alignment,
         )
 
@@ -1447,11 +1474,12 @@ def _build_review_record(
                 dict,
             )
         ],
+        "human_review_queue_fingerprint_version": REVIEW_QUEUE_FINGERPRINT_SCHEMA_VERSION,
         "human_review_queue_fingerprint": review_queue_fingerprint(
-            human_review
+            human_review, version=REVIEW_QUEUE_FINGERPRINT_SCHEMA_VERSION,
         ),
         "human_review_generation_fingerprint": review_generation_fingerprint(
-            input_fingerprint, human_review
+            input_fingerprint, human_review, version=REVIEW_QUEUE_FINGERPRINT_SCHEMA_VERSION,
         ),
     }
     completion_metadata = resolution.get("completion_metadata")
@@ -1538,6 +1566,137 @@ def _write_cloud_review_state(
         + "\n",
         encoding="utf-8",
     )
+
+
+def _retained_human_replay_audit(
+    cached_record: dict | None,
+    superseded_human_decisions: list[dict],
+    review_before_human: list[dict],
+    *,
+    current_input_fingerprint: str | None = None,
+) -> tuple[list[dict], list[dict]]:
+    """Deduplicate historical supersessions/rejections across repeated rebuilds."""
+    # Keep historical supersessions through subsequent review generations.
+    # A later successful human decision must not erase earlier mismatch evidence.
+    previous_superseded = [
+        dict(decision)
+        for decision in (cached_record or {}).get("superseded_human_decisions", [])
+        if isinstance(decision, dict)
+    ]
+    superseded_seen = {
+        json.dumps(d, sort_keys=True, ensure_ascii=False)
+        for d in previous_superseded
+    }
+    for decision in superseded_human_decisions:
+        identity = json.dumps(decision, sort_keys=True, ensure_ascii=False)
+        if identity not in superseded_seen:
+            previous_superseded.append(decision)
+            superseded_seen.add(identity)
+
+    replay_report = human_replay_diagnostics(cached_record or {}, review_before_human)
+    prior_rejections = [
+        dict(entry)
+        for entry in (cached_record or {}).get("human_replay_rejections", [])
+        if isinstance(entry, dict)
+    ]
+    seen_rejections = {
+        (entry.get("input_fingerprint"), entry.get("id"), entry.get("reason"))
+        for entry in prior_rejections
+    }
+    for rejection in replay_report["rejected"]:
+        entry = {
+            "input_fingerprint": (
+                current_input_fingerprint
+                if current_input_fingerprint is not None
+                else (cached_record or {}).get("input_fingerprint")
+            ),
+            "id": rejection["id"],
+            "reason": rejection["reason"],
+        }
+        identity = (entry["input_fingerprint"], entry["id"], entry["reason"])
+        if identity not in seen_rejections:
+            prior_rejections.append(entry)
+            seen_rejections.add(identity)
+
+    return previous_superseded, prior_rejections
+
+
+def preflight_human_review_replay(episode: dict, record: dict) -> dict:
+    """Inspect the actual deterministic compiler card set before Worker dispatch.
+
+    No resolver, triage, GCS write, AI call, or Worker execution is performed.
+    Use the same source bytes, compiler, source mapping, preview geometry, and
+    exact audited-decision matcher as the first Worker replay pass. A later
+    source change is still checked again by the actual Worker.
+    """
+    episode_key = episode.get("episode_key")
+    if not isinstance(episode_key, str) or episode_key != record.get("episode_key"):
+        raise ValueError("Recompile preflight episode identity does not match audit")
+    sources = episode.get("files", {}).get("sources", {})
+    if not isinstance(sources, dict):
+        raise ValueError("Recompile preflight has no canonical sources")
+    fetched: dict[str, tuple[bytes, bytes | None]] = {}
+    for source in ("apple", "whisper"):
+        entry = sources.get(source)
+        if not isinstance(entry, dict) or not isinstance(entry.get("text"), str):
+            raise ValueError(f"Recompile preflight missing {source} source")
+        raw = download_gcs_bytes(entry["text"])
+        if not isinstance(raw, bytes):
+            raise ValueError(f"Recompile preflight invalid {source} source bytes")
+        meta = (
+            download_gcs_bytes(entry["metadata"])
+            if isinstance(entry.get("metadata"), str)
+            else None
+        )
+        fetched[source] = (raw, meta)
+
+    fingerprint = _review_source_fingerprint(
+        apple_text=fetched["apple"][0],
+        apple_metadata=fetched["apple"][1],
+        whisper_text=fetched["whisper"][0],
+        whisper_metadata=fetched["whisper"][1],
+    )
+    if fingerprint != record.get("source_fingerprint"):
+        return {
+            "checked_count": len(record.get("human_decisions", [])),
+            "replayed_ids": [],
+            "rejected": [
+                {"id": decision.get("id"), "reason": "source_generation_changed"}
+                for decision in record.get("human_decisions", [])
+                if isinstance(decision, dict)
+            ],
+        }
+
+    with TemporaryDirectory(prefix="podcast-review-preflight-") as temporary:
+        root = Path(temporary)
+        texts: dict[str, str] = {}
+        metadata_paths: dict[str, Path | None] = {}
+        for source in ("apple", "whisper"):
+            raw, meta = fetched[source]
+            texts[source] = raw.decode("utf-8")
+            metadata_paths[source] = None
+            if meta is not None:
+                metadata_paths[source] = root / f"{source}-transcript.json"
+                metadata_paths[source].write_bytes(meta)
+
+        result = compile_transcripts(
+            texts["apple"], texts["whisper"],
+            apple_metadata=metadata_paths["apple"],
+            whisper_metadata=metadata_paths["whisper"],
+        )
+        resolver_batch = _route_review_anomalies(
+            result, build_resolver_batch(result, episode_key)
+        )
+        fresh = _human_review_items(
+            result, resolver_batch,
+            {"accepted": [], "review": [], "outcomes": []},
+            alignment=align_transcripts(texts["apple"], texts["whisper"]),
+            base_texts={
+                "apple": clean_transcript(texts["apple"], remove_timestamps=True),
+                "whisper": clean_transcript(texts["whisper"]),
+            },
+        )
+    return human_replay_diagnostics(record, fresh)
 
 
 def compile_episode_sources(
@@ -1921,6 +2080,10 @@ def compile_episode_sources(
             and decision.get("id") not in decided_ids
         )
     ]
+    previous_superseded, prior_rejections = _retained_human_replay_audit(
+        cached_record, superseded_human_decisions, review_before_human,
+        current_input_fingerprint=input_fingerprint,
+    )
     preserved_recompile_requests = [
         dict(request)
         for request in (cached_record or {}).get("recompile_requests", [])
@@ -1942,13 +2105,19 @@ def compile_episode_sources(
         for item in review:
             if item.get("id") in existing_evidence:
                 item["third_asr"] = existing_evidence[item["id"]]
-        queue_fingerprint = review_queue_fingerprint(review)
+        queue_fingerprint = review_queue_fingerprint(
+            review, version=review_queue_fingerprint_version(review_record),
+        )
         changed_review = (
             review_record.get("human_review") != review
             or review_record.get("human_review_queue_fingerprint")
             != queue_fingerprint
         )
         review_record.setdefault("human_decisions", [])
+        if previous_superseded:
+            review_record["superseded_human_decisions"] = previous_superseded
+        if prior_rejections:
+            review_record["human_replay_rejections"] = prior_rejections
         review_record["human_review"] = review
         review_record["human_review_queue_fingerprint"] = queue_fingerprint
         linked_recompile_result = link_recompile_result(review_record)
@@ -1997,13 +2166,16 @@ def compile_episode_sources(
                     for decision in preserved_human_decisions
                     if isinstance(decision.get("review_item"), dict)
                 ],
+                version=REVIEW_QUEUE_FINGERPRINT_SCHEMA_VERSION,
             )
         )
         if preserved_recompile_requests:
             review_record["recompile_requests"] = preserved_recompile_requests
         link_recompile_result(review_record)
-        if superseded_human_decisions:
-            review_record["superseded_human_decisions"] = superseded_human_decisions
+        if previous_superseded:
+            review_record["superseded_human_decisions"] = previous_superseded
+        if prior_rejections:
+            review_record["human_replay_rejections"] = prior_rejections
         # TASK-133: the reviewer's materiality audit (time, overruled filter
         # choices, notes) outlives a recompilation like the decisions do.
         preserved_review_log = [

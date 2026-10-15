@@ -45,6 +45,7 @@ from .ai_budget import (
 )
 from .ai_pricing import derive_audio_reservation_usd, resolve_audio_model_pricing
 from .episode_contract import now_iso, paths_for
+from .whisper_provenance import review_audio_reference
 from .review_audio import (
     THIRD_ASR_FAILURE_PRE_SEND_RETRYABLE,
     THIRD_ASR_MODEL,
@@ -427,37 +428,64 @@ class RecompileLifecycleInvariantError(RuntimeError):
     """A correlated worker cannot prove its durable request identity."""
 
 
-def review_queue_fingerprint(items: Iterable[dict]) -> str:
-    """Return a stable identity for the decisions represented by review cards.
+# Existing review records without this explicit marker keep their original
+# (v1) byte-for-byte hash algorithm and never have generation tokens migrated.
+REVIEW_QUEUE_FINGERPRINT_SCHEMA_VERSION = 2
 
-    This intentionally excludes timestamps, context, generated third-ASR
-    evidence, and other incidental audit fields.  It captures only what a
-    reviewer is being asked to decide, so it is safe to use in logs.
+
+def review_queue_fingerprint_version(record: dict) -> int:
+    """Determine a persisted review's identity contract without upgrading it."""
+
+    version = record.get("human_review_queue_fingerprint_version", 1)
+    if type(version) is not int or version not in (1, REVIEW_QUEUE_FINGERPRINT_SCHEMA_VERSION):
+        raise ValueError("Unknown Human Review queue fingerprint version")
+    return version
+
+
+def review_queue_fingerprint(
+    items: Iterable[dict], *, version: int = REVIEW_QUEUE_FINGERPRINT_SCHEMA_VERSION,
+) -> str:
+    """Stable card identity: v1 for existing records, v2 for new generations.
+
+    V1 is deliberately byte-identical to its historical implementation.
+    For new v2 full-scope cards, focus text is only a display hint: identity
+    instead includes unchanged full readings and the canonical merge preview.
+    Partial-scope focus text remains identity-bearing in both versions.
     """
 
+    if type(version) is not int or version not in (1, REVIEW_QUEUE_FINGERPRINT_SCHEMA_VERSION):
+        raise ValueError("Unknown Human Review queue fingerprint version")
     queue = []
     for item in items:
         if not isinstance(item, dict):
             continue
         focus = item.get("focus")
-        queue.append(
+        identity_focus = (
             {
-                "id": item.get("id"),
-                "reason": item.get("reason"),
-                "kind": item.get("kind"),
-                "severity": item.get("severity"),
-                "category": item.get("category"),
-                "apple_text": item.get("apple_text"),
-                "whisper_text": item.get("whisper_text"),
-                "focus": {
-                    "scope": focus.get("scope", "full"),
-                    "apple_text": focus.get("apple_text"),
-                    "whisper_text": focus.get("whisper_text"),
-                }
-                if isinstance(focus, dict)
-                else None,
+                "scope": focus.get("scope", "full"),
+                "apple_text": focus.get("apple_text"),
+                "whisper_text": focus.get("whisper_text"),
             }
+            if isinstance(focus, dict)
+            else None
         )
+        entry = {
+            "id": item.get("id"),
+            "reason": item.get("reason"),
+            "kind": item.get("kind"),
+            "severity": item.get("severity"),
+            "category": item.get("category"),
+            "apple_text": item.get("apple_text"),
+            "whisper_text": item.get("whisper_text"),
+            "focus": identity_focus,
+        }
+        if version == REVIEW_QUEUE_FINGERPRINT_SCHEMA_VERSION and (
+            identity_focus is None or identity_focus["scope"] == "full"
+        ):
+            # Keep scope, drop incidental focus hints, bind exact merge geometry.
+            entry["focus"] = {"scope": "full", "apple_text": None, "whisper_text": None}
+            entry["merge_preview"] = item.get("merge_preview")
+        queue.append(entry)
 
     encoded = json.dumps(
         sorted(
@@ -477,18 +505,21 @@ def review_queue_fingerprint(items: Iterable[dict]) -> str:
 
 
 def review_generation_fingerprint(
-    input_fingerprint: str | None, items: Iterable[dict]
+    input_fingerprint: str | None,
+    items: Iterable[dict],
+    *,
+    version: int = REVIEW_QUEUE_FINGERPRINT_SCHEMA_VERSION,
 ) -> str:
-    """Return the durable identity of one complete human-review generation."""
+    """Immutable generation token; historical v1 encoding remains identical."""
 
+    value = {
+        "input_fingerprint": input_fingerprint,
+        "queue_fingerprint": review_queue_fingerprint(items, version=version),
+    }
+    if version == REVIEW_QUEUE_FINGERPRINT_SCHEMA_VERSION:
+        value["queue_fingerprint_version"] = version
     encoded = json.dumps(
-        {
-            "input_fingerprint": input_fingerprint,
-            "queue_fingerprint": review_queue_fingerprint(items),
-        },
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
     ).encode("utf-8")
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
@@ -551,11 +582,62 @@ def save_review_record(
     return record
 
 
+LEGACY_FOCUS_RECOVERY = "verified_full_source_span_v1"
+
+
+def _project_legacy_partial_focus(item: dict) -> dict:
+    """Offer full-span human review when historical partial focus was lost.
+
+    Pure projection: stored cards and earlier human decisions are untouched.
+    Never guess a focus from context or silently accept either source. The
+    original canonical primary-source span must be provable byte-for-byte.
+    """
+
+    focus = item.get("focus")
+    if (
+        not isinstance(focus, dict)
+        or focus.get("scope") != "partial"
+        or focus.get("apple_text") is not None
+        or focus.get("whisper_text") is not None
+    ):
+        return item
+    geometry = item.get("merge_preview")
+    if not isinstance(geometry, dict):
+        return item
+    base = geometry.get("base_source")
+    context = geometry.get("context_text")
+    start, end = geometry.get("span_start"), geometry.get("span_end")
+    span = geometry.get("span_text")
+    if (
+        base not in {"apple", "whisper"}
+        or not isinstance(context, str)
+        or not isinstance(start, int) or isinstance(start, bool)
+        or not isinstance(end, int) or isinstance(end, bool)
+        or not isinstance(span, str) or not span
+        or not 0 <= start < end <= len(context)
+        or context[start:end] != span
+        or item.get(f"{base}_text") != span
+        or not all(isinstance(item.get(f"{src}_text"), str) for src in ("apple", "whisper"))
+    ):
+        return item
+    item["focus"] = {
+        "scope": "full",
+        "apple_text": item["apple_text"],
+        "whisper_text": item["whisper_text"],
+    }
+    item["legacy_focus_recovery"] = LEGACY_FOCUS_RECOVERY
+    return item
+
+
 def pending_review_items(record: dict) -> list[dict]:
-    """Return the remaining cards in a stable ID order."""
+    """Return stable pending cards with read-only verified legacy projections."""
 
     return sorted(
-        (copy.deepcopy(item) for item in record.get("human_review", []) if isinstance(item, dict)),
+        (
+            _project_legacy_partial_focus(copy.deepcopy(item))
+            for item in record.get("human_review", [])
+            if isinstance(item, dict)
+        ),
         key=lambda item: item.get("id", 0),
     )
 
@@ -1427,7 +1509,7 @@ def record_human_decision(
         if isinstance(existing, dict) and existing.get("id") != difference_id
     ]
     record["human_review_queue_fingerprint"] = review_queue_fingerprint(
-        record["human_review"]
+        record["human_review"], version=review_queue_fingerprint_version(record),
     )
     record["human_review_updated_at"] = now_iso()
     save_review_record(episode_key, record)
@@ -1517,7 +1599,7 @@ def _apply_batch_source_decision(
         if isinstance(existing, dict) and existing.get("id") != difference_id
     ]
     record["human_review_queue_fingerprint"] = review_queue_fingerprint(
-        record["human_review"]
+        record["human_review"], version=review_queue_fingerprint_version(record),
     )
     record["human_review_updated_at"] = now_iso()
 
@@ -1635,7 +1717,7 @@ def _apply_tier_a_decision(record: dict, difference_id: int) -> None:
         if isinstance(existing, dict) and existing.get("id") != difference_id
     ]
     record["human_review_queue_fingerprint"] = review_queue_fingerprint(
-        record["human_review"]
+        record["human_review"], version=review_queue_fingerprint_version(record),
     )
     record["human_review_updated_at"] = now_iso()
 
@@ -1843,7 +1925,9 @@ def record_materiality_decision_batch(
         log = [entry for entry in working.get("materiality_review_log", []) if isinstance(entry, dict)]
         log.append(_materiality_review_log_entry(recorded, review_session))
         working["materiality_review_log"] = log[-MATERIALITY_REVIEW_LOG_MAX_ENTRIES:]
-        working["human_review_queue_fingerprint"] = review_queue_fingerprint(working["human_review"])
+        working["human_review_queue_fingerprint"] = review_queue_fingerprint(
+            working["human_review"], version=review_queue_fingerprint_version(working),
+        )
         working["human_review_updated_at"] = now_iso()
         try:
             save_review_record(episode_key, working, if_generation_match=object_generation)
@@ -1851,6 +1935,57 @@ def record_materiality_decision_batch(
         except PreconditionFailed:
             continue
     raise RuntimeError("Review record changed repeatedly while recording materiality decisions")
+
+
+def record_review_note(
+    episode_key: str,
+    *,
+    expected_generation_fingerprint: str,
+    note: str,
+) -> dict:
+    """CAS-save episode feedback without creating or altering card decisions.
+
+    This uses the existing materiality review log (not a new decision store).
+    Repeated submissions of the same last note are idempotent, including when
+    the first response was lost after its successful GCS write.
+    """
+
+    if not isinstance(expected_generation_fingerprint, str) or not expected_generation_fingerprint:
+        raise ValueError("Expected review generation is required")
+    session = _validated_review_session({"note": note})
+    text = session.get("note")
+    if not text:
+        raise ValueError("A non-empty review note is required")
+    for _ in range(3):
+        record, generation = load_review_record_with_generation(episode_key)
+        if record.get("episode_key") != episode_key:
+            raise ValueError("Review note episode identity does not match audit")
+        if record.get("human_review_generation_fingerprint") != expected_generation_fingerprint:
+            raise ValueError("Review generation changed; reload before saving a note")
+        log = [
+            entry for entry in record.get("materiality_review_log", [])
+            if isinstance(entry, dict)
+        ]
+        if log and log[-1].get("note_only") is True and log[-1].get("note") == text:
+            return {"saved": True, "idempotent": True}
+        working = copy.deepcopy(record)
+        entry = _materiality_review_log_entry([], {
+            "started_at": None,
+            "settled_list_opened": False,
+            "note": text,
+        })
+        entry["note_only"] = True
+        working["materiality_review_log"] = (
+            log + [entry]
+        )[-MATERIALITY_REVIEW_LOG_MAX_ENTRIES:]
+        try:
+            save_review_record(
+                episode_key, working, if_generation_match=generation,
+            )
+            return {"saved": True, "idempotent": False}
+        except PreconditionFailed:
+            continue
+    raise RuntimeError("Review record changed repeatedly while saving a note")
 
 
 # TASK-076 Task 11: Assisted decision batch.
@@ -1995,7 +2130,7 @@ def _apply_assisted_batch_decision(
         if isinstance(existing, dict) and existing.get("id") != difference_id
     ]
     record["human_review_queue_fingerprint"] = review_queue_fingerprint(
-        record["human_review"]
+        record["human_review"], version=review_queue_fingerprint_version(record),
     )
     record["human_review_updated_at"] = now_iso()
 
@@ -2064,6 +2199,80 @@ def record_assisted_human_decision_batch(
     )
 
 
+def _recovered_full_span_matches(reviewed_item: dict, item: dict) -> bool:
+    """A full-span legacy choice can replay only against identical fresh words.
+
+    The old null partial focus cannot be reconstructed from the audit record.
+    Require the previously previewed primary-source geometry, both exact
+    source readings, and a genuinely partial fresh item, then preserve the
+    reviewer's explicit whole-span choice rather than guessing the focus.
+    """
+
+    if reviewed_item.get("legacy_focus_recovery") != LEGACY_FOCUS_RECOVERY:
+        return False
+    old_focus = reviewed_item.get("focus")
+    new_focus = item.get("focus")
+    if (
+        not isinstance(old_focus, dict)
+        or old_focus.get("scope") != "full"
+        or old_focus.get("apple_text") != reviewed_item.get("apple_text")
+        or old_focus.get("whisper_text") != reviewed_item.get("whisper_text")
+        or not isinstance(new_focus, dict)
+        or new_focus.get("scope") != "partial"
+        or not all(isinstance(new_focus.get(f"{src}_text"), str) and new_focus[f"{src}_text"] for src in ("apple", "whisper"))
+        or reviewed_item.get("merge_preview") != item.get("merge_preview")
+    ):
+        return False
+    try:
+        geometry = _custom_edit_geometry(reviewed_item)
+    except ValueError:
+        return False
+    return geometry["replaced_text"] == reviewed_item.get(f"{geometry['base_source']}_text")
+
+
+def _historical_full_span_matches(reviewed_item: dict, item: dict) -> bool:
+    """Retain an explicitly full-span older choice only with exact fresh evidence.
+
+    Scope=v1/full was already an explicit choice about the complete displayed
+    source span. A later resolver may now classify its *focus* as partial,
+    without changing either source reading or the canonical replacement span.
+    Never project old partial/null focus, guess a substring, or loosen geometry.
+    """
+    old_focus = reviewed_item.get("focus")
+    new_focus = item.get("focus")
+    if (
+        not isinstance(old_focus, dict)
+        or old_focus.get("scope") != "full"
+        or old_focus.get("apple_text") not in (None, reviewed_item.get("apple_text"))
+        or old_focus.get("whisper_text") not in (None, reviewed_item.get("whisper_text"))
+        or not isinstance(new_focus, dict)
+        or new_focus.get("scope") != "partial"
+        or not all(
+            isinstance(new_focus.get(f"{src}_text"), str)
+            and new_focus[f"{src}_text"]
+            for src in ("apple", "whisper")
+        )
+        or reviewed_item.get("merge_preview") != item.get("merge_preview")
+    ):
+        return False
+    try:
+        geometry = _custom_edit_geometry(reviewed_item)
+    except ValueError:
+        return False
+    return geometry["replaced_text"] == reviewed_item.get(
+        f"{geometry['base_source']}_text"
+    )
+
+
+def _safe_full_span_replay(decision: dict, item: dict) -> bool:
+    reviewed_item = decision.get("review_item")
+    if not isinstance(reviewed_item, dict):
+        return False
+    if reviewed_item.get("legacy_focus_recovery") == LEGACY_FOCUS_RECOVERY:
+        return _recovered_full_span_matches(reviewed_item, item)
+    return _historical_full_span_matches(reviewed_item, item)
+
+
 def _decision_review_item_matches(decision: dict, item: dict) -> bool:
     """Require the original human-reviewed source/focus text to be unchanged."""
 
@@ -2075,9 +2284,37 @@ def _decision_review_item_matches(decision: dict, item: dict) -> bool:
             return False
     reviewed_focus = reviewed_item.get("focus", {})
     current_focus = item.get("focus", {})
+    if not isinstance(reviewed_focus, dict) or not isinstance(current_focus, dict):
+        return False
+    # Recovery-tagged choices are allowed *only* against fresh partial cards,
+    # even if a future compiler instead emits a full card with equal text.
+    if reviewed_item.get("legacy_focus_recovery") == LEGACY_FOCUS_RECOVERY:
+        return _recovered_full_span_matches(reviewed_item, item)
+    old_scope = reviewed_focus.get("scope", "full")
+    new_scope = current_focus.get("scope", "full")
+    if old_scope != new_scope:
+        return _historical_full_span_matches(reviewed_item, item)
+    if old_scope == "full":
+        if (
+            reviewed_focus.get("apple_text") == current_focus.get("apple_text")
+            and reviewed_focus.get("whisper_text") == current_focus.get("whisper_text")
+        ):
+            return True
+        # Full-span decisions target the complete unchanged source readings.
+        # Focus hints are non-authoritative for that scope, but accepting their
+        # representation drift still requires exact canonical preview geometry.
+        preview = reviewed_item.get("merge_preview")
+        if not isinstance(preview, dict) or preview != item.get("merge_preview"):
+            return False
+        try:
+            geometry = _custom_edit_geometry(reviewed_item)
+        except ValueError:
+            return False
+        return geometry["replaced_text"] == reviewed_item.get(
+            f"{geometry['base_source']}_text"
+        )
     return (
-        reviewed_focus.get("scope", "full") == current_focus.get("scope", "full")
-        and reviewed_focus.get("apple_text") == current_focus.get("apple_text")
+        reviewed_focus.get("apple_text") == current_focus.get("apple_text")
         and reviewed_focus.get("whisper_text") == current_focus.get("whisper_text")
     )
 
@@ -2151,14 +2388,20 @@ def validated_human_resolutions(
             )
             continue
 
-        if decision_scope != current_scope:
+        legacy_full_span = (
+            decision_scope == "full"
+            and current_scope == "partial"
+            and _decision_review_item_matches(decision, item)
+            and _safe_full_span_replay(decision, item)
+        )
+        if decision_scope != current_scope and not legacy_full_span:
             continue
 
         resolution_text = text
         if source in {"apple", "whisper"}:
             expected = (
                 item.get("focus", {}).get(source + "_text")
-                if current_scope == "partial"
+                if current_scope == "partial" and not legacy_full_span
                 else item.get(source + "_text")
             )
             if text != expected:
@@ -2185,14 +2428,69 @@ def validated_human_resolutions(
             "id": difference_id,
             "source": resolution_source,
             "text": resolution_text,
-            "scope": current_scope,
+            "scope": "full" if legacy_full_span else current_scope,
             "reviewed_by": "human",
         }
-        if current_scope == "partial":
+        if current_scope == "partial" and not legacy_full_span:
             resolution["focus_apple_text"] = item["focus"]["apple_text"]
             resolution["focus_whisper_text"] = item["focus"]["whisper_text"]
         resolutions.append(resolution)
     return resolutions
+
+
+def human_replay_diagnostics(record: dict, fresh_items: Iterable[dict]) -> dict:
+    """Read-only exact replay analysis, shared by preflight and compilation.
+
+    A rejection is a reason to stop before dispatch; it never implies that
+    the reviewed source choice should be silently rewritten or discarded.
+    Report safe IDs/reason codes only, never source text or custom edits.
+    """
+    fresh = {
+        item.get("id"): item
+        for item in fresh_items
+        if isinstance(item, dict) and isinstance(item.get("id"), int)
+    }
+    applied = {
+        item["id"]
+        for item in validated_human_resolutions(
+            record, fresh.values(), require_current_item_evidence=True
+        )
+    }
+    rejected: list[dict] = []
+    seen: set[int] = set()
+    for choice in record.get("human_decisions", []):
+        if not isinstance(choice, dict) or not isinstance(choice.get("id"), int):
+            rejected.append({"id": None, "reason": "invalid_decision_record"})
+            continue
+        difference_id = choice["id"]
+        if difference_id in seen:
+            rejected.append({"id": difference_id, "reason": "duplicate_decision_id"})
+            continue
+        seen.add(difference_id)
+        if difference_id in applied:
+            continue
+        fresh_item = fresh.get(difference_id)
+        reviewed = choice.get("review_item")
+        if fresh_item is None:
+            reason = "difference_not_in_fresh_review"
+        elif not isinstance(reviewed, dict):
+            reason = "missing_original_review_evidence"
+        elif any(
+            reviewed.get(key) != fresh_item.get(key)
+            for key in ("id", "apple_text", "whisper_text")
+        ):
+            reason = "source_span_changed"
+        elif not _decision_review_item_matches(choice, fresh_item):
+            reason = "focus_or_preview_geometry_changed"
+        else:
+            reason = "choice_or_edit_validation_failed"
+        rejected.append({"id": difference_id, "reason": reason})
+    return {
+        "checked_count": len(record.get("human_decisions", [])),
+        "replayed_ids": sorted(applied),
+        "rejected": rejected,
+    }
+
 
 def _completed_review_generation(record: dict) -> str:
     """Find the immutable review-generation identity, including old records."""
@@ -2308,6 +2606,13 @@ def _update_recompile_request(
         record, generation = load_review_record_with_generation(episode_key)
         for request in record.get("recompile_requests", []):
             if isinstance(request, dict) and request.get("request_id") == request_id:
+                # The dispatched Worker may already have completed before
+                # the caller receives its Cloud Run operation response.
+                # Never regress terminal audit status to "started".
+                if status == "started" and request.get("status") in {
+                    "completed", "execution_failed"
+                }:
+                    return request
                 request["status"] = status
                 request["updated_at"] = now_iso()
                 if worker_request is not None:
@@ -2383,6 +2688,53 @@ def complete_recompile_request(
     )
 
 
+def mark_correlated_recompile_failed(
+    episode_key: str, *, request_id: str, review_generation: str, reason: str
+) -> dict:
+    """Conclude a known failed correlated Worker run without hiding old evidence.
+
+    Does not depend on the resolver's *current* generation, which may have
+    changed in the failed Worker. A later successful request has its own UUID.
+    A repeat after a known failure is a semantic no-op. No success or
+    unrelated request is ever overwritten.
+    """
+    if reason not in {"review_required", "worker_exception"}:
+        raise ValueError("Unsupported recompile failure reason")
+    for _ in range(3):
+        record, generation = load_review_record_with_generation(episode_key)
+        matches = [
+            item for item in record.get("recompile_requests", [])
+            if _is_structured_recompile_request(item)
+            and item["request_id"] == request_id
+            and item["review_generation_fingerprint"] == review_generation
+        ]
+        if len(matches) != 1:
+            raise RecompileLifecycleInvariantError(
+                "Failed recompile request identity was not found exactly once"
+            )
+        request = matches[0]
+        if request["status"] == "execution_failed":
+            return request
+        if request["status"] not in RECOMPILE_IN_FLIGHT_STATUSES:
+            raise RecompileLifecycleInvariantError(
+                "Cannot mark a terminal recompile request as failed"
+            )
+        request["status"] = "execution_failed"
+        request["failure_reason"] = reason
+        request["failed_at"] = now_iso()
+        request["updated_at"] = request["failed_at"]
+        try:
+            save_review_record(
+                episode_key, record, if_generation_match=generation
+            )
+            return request
+        except PreconditionFailed:
+            continue
+    raise RecompileAuditPersistenceError(
+        "Review record changed repeatedly while recording failed recompile"
+    )
+
+
 def request_worker_recompile(episode_key: str, *, requested_by: str) -> dict:
     """Start one worker per completed review generation, durably and safely."""
 
@@ -2395,6 +2747,29 @@ def request_worker_recompile(episode_key: str, *, requested_by: str) -> dict:
         existing = _active_recompile_request(record, review_generation)
         if existing is not None:
             return {**existing, "idempotent": True}
+        # No Worker is launched until every previously audited choice can
+        # replay against the exact deterministic compiler evidence. Import
+        # here to avoid the human_review -> compilation -> human_review cycle.
+        if record.get("human_decisions"):
+            from .compilation import preflight_human_review_replay
+            from .storage import get_episode_by_key
+
+            episode = get_episode_by_key(episode_key)
+            if episode is None:
+                raise ValueError("Recompile preflight episode is unavailable")
+            preflight = preflight_human_review_replay(episode, record)
+            if preflight["rejected"]:
+                safe = ", ".join(
+                    f"{item['id']}:{item['reason']}"
+                    for item in preflight["rejected"][:25]
+                )
+                raise ValueError(
+                    "Recompile blocked before Worker launch: "
+                    f"{len(preflight['rejected'])} previous decisions cannot replay"
+                    f" (IDs/reasons: {safe})."
+                )
+            if preflight["checked_count"] != len(preflight["replayed_ids"]):
+                raise ValueError("Recompile preflight could not prove all prior decisions")
         record["human_review_generation_fingerprint"] = review_generation
         reservation = {
             "request_id": str(uuid4()),
@@ -2634,13 +3009,62 @@ def reconcile_review_recompile(
     raise RuntimeError("Review record changed repeatedly while reconciling recompile")
 
 
-def _audio_source(episode: dict) -> str:
-    """Return the durable RSS enclosure used for every review clip."""
+class ReviewAudioUnavailable(RuntimeError):
+    """The audio the Whisper source was made from is not stored (TASK-144)."""
 
-    audio_url = episode.get("audio_url")
-    if isinstance(audio_url, str) and audio_url.startswith(("https://", "http://")):
-        return audio_url
-    raise ValueError("Episode has no downloadable audio source")
+
+REVIEW_AUDIO_CACHE_DIR = Path(tempfile.gettempdir()) / "podcast-review-audio"
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return f"sha256:{digest.hexdigest()}"
+
+
+def _audio_source(episode: dict) -> Path:
+    """Return a local copy of the exact audio the Whisper source was made from.
+
+    TASK-144: review clips and Third ASR are cut from the stored copy of the
+    transcribed audio, never from the RSS enclosure. Hosts with dynamic ad
+    insertion (Megaphone) serve a different file on every download, so the
+    enclosure's timeline does not match the Whisper timestamps. Without a
+    stored copy the clip is unavailable rather than wrong.
+    """
+
+    episode_key = episode["episode_key"]
+    try:
+        metadata = json.loads(
+            get_bucket().blob(paths_for(episode_key)["whisper_metadata"]).download_as_bytes()
+        )
+    except (NotFound, ValueError) as error:
+        raise ReviewAudioUnavailable("The Whisper source metadata is unavailable.") from error
+    reference = review_audio_reference(metadata)
+    if reference is None:
+        raise ReviewAudioUnavailable(
+            "The audio this transcript was made from is not stored; re-transcribe the episode."
+        )
+    digest = reference["sha256"].removeprefix("sha256:")
+    cached = REVIEW_AUDIO_CACHE_DIR / f"{episode_key}-{digest[:32]}.mp3"
+    if cached.is_file() and cached.stat().st_size == reference["bytes"]:
+        return cached
+    REVIEW_AUDIO_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    handle, raw_path = tempfile.mkstemp(dir=REVIEW_AUDIO_CACHE_DIR, suffix=".part")
+    os.close(handle)
+    partial = Path(raw_path)
+    try:
+        try:
+            get_bucket().blob(reference["path"]).download_to_filename(str(partial))
+        except NotFound as error:
+            raise ReviewAudioUnavailable("The stored review audio is missing.") from error
+        if _file_sha256(partial) != reference["sha256"]:
+            raise ReviewAudioUnavailable("The stored review audio does not match its metadata.")
+        os.replace(partial, cached)
+    finally:
+        partial.unlink(missing_ok=True)
+    return cached
 
 
 def ensure_audio_clip(episode: dict, item: dict, *, fingerprint: str) -> tuple[Path, dict]:
@@ -2805,7 +3229,13 @@ def ensure_third_asr(
                     episode_key, budget_fingerprint, attempt_id, reason=type(error).__name__
                 )
 
-            if failure_class in THIRD_ASR_RETRYABLE_FAILURE_CLASSES and attempt < THIRD_ASR_MAX_ATTEMPTS:
+            if (
+                failure_class in THIRD_ASR_RETRYABLE_FAILURE_CLASSES
+                and attempt < THIRD_ASR_MAX_ATTEMPTS
+                # TASK-144: a missing stored audio copy does not come back
+                # on retry.
+                and not isinstance(error, ReviewAudioUnavailable)
+            ):
                 sleep_fn(_third_asr_retry_delay_seconds(random_fn=random_fn))
                 continue
 

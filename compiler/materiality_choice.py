@@ -14,7 +14,13 @@ reading to keep comes from the first decisive step, in this order:
                         was actually said;
 6. ``either``        -- the readings differ only in how the same letters or
                         numbers are written;
-otherwise ``click_one``: nothing is decisive and the reviewer picks.
+7. ``judge_majority`` -- a judged card without a unanimous better reading:
+                        the reading most answers name (at least two);
+8. ``fuller``        -- otherwise the reading with more words;
+only readings of equal length with no majority stay ``click_one`` (the
+reviewer picks). User decision 2026-10-14: when the readings mean the same,
+which one is kept does not matter to him and speed does; his picks on 23
+such cards matched the majority 11 times and the fuller reading 10 times.
 
 A card that stays with the reviewer gets a preselected ``proposal`` only on
 strong evidence -- all three judge answers name the same reading and the
@@ -88,6 +94,17 @@ def unanimous_vote(votes: list[str] | None, expected: int = 3) -> str | None:
     return votes[0]
 
 
+def majority_vote(votes: list[str] | None) -> str | None:
+    """The reading most judge answers name: at least two, and more than the other."""
+
+    if not votes:
+        return None
+    counts = {source: votes.count(source) for source in SOURCES}
+    best = max(counts, key=counts.get)
+    other = "whisper" if best == "apple" else "apple"
+    return best if counts[best] >= 2 and counts[best] > counts[other] else None
+
+
 def choose_reading(inputs: dict, *, reason: str, votes: list[str] | None = None) -> tuple[str | None, str]:
     """``(use, step)`` for a card the filter settles; ``use`` is None for
     ``either`` (any reading) and ``click_one`` (the reviewer picks)."""
@@ -110,6 +127,15 @@ def choose_reading(inputs: dict, *, reason: str, votes: list[str] | None = None)
         return None, "either"
     if reason == "number_format":
         return None, "either"
+    # Judged the same content but no unanimous better reading (user decision
+    # 2026-10-14: then either reading is fine and speed matters more): the
+    # reading most judge answers name, else the one with more words.
+    majority = majority_vote(votes)
+    if majority:
+        return majority, "judge_majority"
+    lengths = {source: len(materiality_tokens(inputs[source])) for source in SOURCES}
+    if lengths["apple"] != lengths["whisper"]:
+        return max(lengths, key=lengths.get), "fuller"
     return None, "click_one"
 
 

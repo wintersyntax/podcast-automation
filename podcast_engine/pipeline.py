@@ -8,7 +8,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 
-from .apple_acquisition import acquire_apple_transcript
+from .apple_acquisition import AppleCredentialUnavailable, acquire_apple_transcript
 from .compilation import compile_episode_sources, review_record_is_current
 from .human_review import (
     load_review_record,
@@ -23,10 +23,13 @@ from .episode_contract import (
     summary_is_vault_sync_ready,
 )
 from .episode_identity import episode_key_for
+from .review_audio_retention import apply_review_audio_retention
+from . import episode_duplicates
 from .rss import get_latest_episode
 from .whisper_provenance import whisper_metadata_matches_current_producer
 from .storage import (
     add_episode,
+    get_bucket,
     download_gcs_bytes,
     file_exists_in_gcs,
     get_episode_by_key,
@@ -43,9 +46,10 @@ from .notifications import (
     send_slack_summary_ready_notification,
 )
 from .observability import emit_event
+from .materiality_queue import materiality_group_counts
 from .materiality_shadow import run_materiality_shadow
 from .third_asr_prefetch import prefetch_third_asr
-from .transcriber import transcribe_audio
+from .transcriber import WhisperProviderUnavailable, transcribe_audio
 
 
 APPLE_TRANSCRIPT_DELAY_DAYS = int(
@@ -413,6 +417,27 @@ def _prefetch_third_asr_before_notification(
     return summary
 
 
+def _review_group_counts(episode: dict) -> dict | None:
+    """TASK-133: pending cards per materiality group for the notification.
+
+    Best-effort: any failure leaves the notification on the tier line.
+    """
+
+    episode_key = episode.get("episode_key")
+    try:
+        record = load_review_record(episode_key)
+        return materiality_group_counts(record, episode_key, pending_review_items(record))
+    except Exception as error:  # noqa: BLE001 - notification must still go out
+        emit_event(
+            "review_group_counts_unavailable",
+            "Materiality group counts unavailable for the review notification",
+            severity="WARNING",
+            episode_key=episode_key,
+            error_type=type(error).__name__,
+        )
+        return None
+
+
 def _materiality_shadow_before_notification(episode: dict) -> dict:
     """Run the TASK-133 shadow materiality filter; never blocks anything."""
 
@@ -527,6 +552,56 @@ def _emit_apple_transcript_late_if_needed(
     return updated
 
 
+def _duplicate_outcome(episode: dict) -> dict:
+    return {
+        "status": "skipped",
+        "reason": "duplicate",
+        "duplicate_of": (episode.get("duplicate_check") or {}).get(
+            "original_episode_key"
+        ),
+        "episode": episode,
+    }
+
+
+def _record_duplicate_if_found(episode: dict) -> dict:
+    """TASK-135: stop an uncompiled episode that republishes an earlier one."""
+
+    if not episode_duplicates.checkable(episode):
+        return episode
+
+    finding = episode_duplicates.find_original(
+        episode,
+        load_episodes(),
+        lambda path: download_gcs_bytes(path).decode("utf-8"),
+    )
+    if finding is None:
+        return episode
+
+    updated = update_episode(
+        episode["episode_key"],
+        duplicate_check=episode_duplicates.duplicate_record(
+            finding,
+            checked_at=datetime.now(timezone.utc).isoformat(),
+        ),
+    )
+    if updated is None:
+        raise RuntimeError("Could not persist duplicate episode finding.")
+
+    emit_event(
+        "episode_duplicate",
+        "Episode republishes an earlier episode; it is not processed further.",
+        severity="NOTICE",
+        episode_key=updated.get("episode_key"),
+        podcast=updated.get("podcast"),
+        title=updated.get("title"),
+        original_episode_key=finding["original_episode_key"],
+        original_podcast=finding["original_podcast"],
+        original_title=finding["original_title"],
+        containment=finding["containment"],
+    )
+    return updated
+
+
 def _transcribe_if_needed(
     episode: dict,
 ) -> dict:
@@ -599,6 +674,9 @@ def resume_tracked_episode(
             "episode": episode,
         }
 
+    if episode_duplicates.is_duplicate(episode):
+        return _duplicate_outcome(episode)
+
     print(
         f"START pipeline: "
         f"{podcast_config['name']} "
@@ -608,6 +686,10 @@ def resume_tracked_episode(
     episode = _transcribe_if_needed(
         episode
     )
+
+    episode = _record_duplicate_if_found(episode)
+    if episode_duplicates.is_duplicate(episode):
+        return _duplicate_outcome(episode)
 
     apple_source = (
         episode["files"]["sources"][
@@ -644,12 +726,20 @@ def resume_tracked_episode(
 
         started = time.time()
 
-        apple_result = (
-            acquire_apple_transcript(
+        try:
+            apple_result = acquire_apple_transcript(
                 podcast_config,
                 episode,
             )
-        )
+        except AppleCredentialUnavailable:
+            # TASK-117: a broken Apple token only delays Apple acquisition.
+            # `apple_token_invalid` has been emitted (the alert fires); the
+            # episode stays retryable and the run continues with the others.
+            return {
+                "status": "waiting_for_apple_transcript",
+                "reason": "apple_credential_unavailable",
+                "episode": episode,
+            }
 
         print(
             "END Apple acquisition: "
@@ -752,9 +842,10 @@ def resume_tracked_episode(
                 episode, compiled.get("review")
             )
             tiers = prefetch.get("tiers")
-            # TASK-133: record (shadow only) which cards the materiality
-            # filter would have settled; the reviewer still sees every card.
+            # TASK-133: the materiality filter groups the cards; the
+            # notification counts the work the review page will show.
             _materiality_shadow_before_notification(episode)
+            groups = _review_group_counts(episode)
             if compiler_status != "review_required":
                 _log_human_review_required(
                     episode,
@@ -769,12 +860,14 @@ def resume_tracked_episode(
                         compiled.get("review")
                     ),
                     tiers=tiers,
+                    groups=groups,
                 )
                 send_email_review_notification(
                     episode,
                     compiled["review_required"],
                     PODCAST_REVIEW_URL,
                     tiers=tiers,
+                    groups=groups,
                 )
             elif previous_review is not None:
                 review = compiled["review"]
@@ -798,6 +891,7 @@ def resume_tracked_episode(
                         len(review),
                         PODCAST_REVIEW_URL,
                         tiers=tiers,
+                        groups=groups,
                     )
 
             return {
@@ -810,12 +904,7 @@ def resume_tracked_episode(
 
     # Knowledge owns its own fingerprint/manifest cache.
     started = time.time()
-    if build_knowledge_note(episode) is None:
-        return {
-            "status": "waiting_for_summary_review_activation",
-            "reason": "reviewer_not_activated",
-            "episode": episode,
-        }
+    build_knowledge_note(episode)
 
     print(
         f"END summary: "
@@ -938,6 +1027,7 @@ def _tracked_episodes_to_resume(
             or episode_key in processed_episode_keys
             or not _belongs_to_podcast(episode, podcast_config)
             or _episode_is_completed(episode)
+            or episode_duplicates.is_duplicate(episode)
         ):
             continue
 
@@ -998,7 +1088,7 @@ def run_pipeline(
                         latest_episode["episode_key"]
                     )
                     outcomes.append(
-                        resume_tracked_episode(
+                        _resume_or_defer(
                             podcast,
                             latest_episode,
                         )
@@ -1014,7 +1104,7 @@ def run_pipeline(
                     episode["episode_key"]
                 )
                 outcomes.append(
-                    resume_tracked_episode(
+                    _resume_or_defer(
                         podcast,
                         episode,
                     )
@@ -1028,4 +1118,85 @@ def run_pipeline(
             )
             raise
 
+    _retain_review_audio()
+    stalled = [
+        outcome for outcome in outcomes
+        if isinstance(outcome, dict)
+        and outcome.get("status") == "deferred"
+        and outcome.get("stalled")
+    ]
+    if stalled:
+        # Every other episode has been processed. A deferral is quiet (user
+        # decision: the day does not matter), but an episode still deferred
+        # after DEFERRAL_ALERT_DAYS ends the run failed so the alert fires.
+        raise EpisodesDeferred(
+            f"{len(stalled)} episode(s) deferred for more than {DEFERRAL_ALERT_DAYS} days: "
+            "the transcription provider stays unavailable"
+        )
     return outcomes
+
+
+DEFERRAL_ALERT_DAYS = 3
+
+
+class EpisodesDeferred(RuntimeError):
+    """TASK-145: the run finished, but at least one episode was deferred."""
+
+
+def _resume_or_defer(podcast_config: dict, episode: dict) -> dict:
+    """TASK-145: a provider outage on one episode does not stop the others.
+
+    Only ``WhisperProviderUnavailable`` (transient, nothing published) is
+    deferred; every other error still stops the run. The first deferral is
+    recorded as ``whisper_deferred_since``; publishing the transcript clears it.
+    """
+
+    try:
+        return resume_tracked_episode(podcast_config, episode)
+    except WhisperProviderUnavailable as error:
+        now = datetime.now(timezone.utc)
+        current = get_episode_by_key(episode["episode_key"]) or episode
+        since = _published_datetime(current.get("whisper_deferred_since"))
+        if since is None:
+            since = now
+            update_episode(episode["episode_key"], whisper_deferred_since=now.isoformat())
+        stalled = now - since > timedelta(days=DEFERRAL_ALERT_DAYS)
+        emit_event(
+            "episode_deferred",
+            "Transcription provider unavailable; episode left for the next run.",
+            severity="WARNING" if stalled else "INFO",
+            podcast=podcast_config.get("name"),
+            episode_key=episode.get("episode_key"),
+            deferred_since=since.isoformat(),
+            reason=str(error),
+        )
+        return {
+            "status": "deferred",
+            "reason": "whisper_provider_unavailable",
+            "stalled": stalled,
+            "episode": episode,
+        }
+
+
+def _retain_review_audio() -> None:
+    """TASK-144: delete the stored review audio of finished episodes.
+
+    Best effort: a failure is reported and never fails the run.
+    """
+
+    try:
+        deleted = apply_review_audio_retention(
+            load_episodes(),
+            bucket=get_bucket(),
+            update_episode=update_episode,
+        )
+    except Exception as error:  # noqa: BLE001 -- retention must not fail the Worker
+        emit_event(
+            "review_audio_retention_failed",
+            "Stored review audio of finished episodes could not be removed.",
+            severity="WARNING",
+            error_type=type(error).__name__,
+        )
+        return
+    if deleted:
+        print(f"Removed stored review audio of {len(deleted)} finished episode(s)")
