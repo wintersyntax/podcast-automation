@@ -3,60 +3,34 @@
 [![Portfolio CI](https://github.com/wintersyntax/podcast-automation/actions/workflows/portfolio-ci.yml/badge.svg)](https://github.com/wintersyntax/podcast-automation/actions/workflows/portfolio-ci.yml)
 ![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![License: MIT](https://img.shields.io/badge/License-MIT-2ea44f)
-![Status: Active WIP](https://img.shields.io/badge/Status-Active%20WIP-f59e0b)
+![Status: Active development](https://img.shields.io/badge/Status-Active%20development-f59e0b)
 
 A resumable automation pipeline for evidence-heavy **exercise science, training and nutrition podcasts**. It combines independent transcript sources, preserves disagreements as evidence, routes ambiguous cases to human review, and produces durable structured knowledge notes.
 
-This repository is a curated portfolio version of a larger private production project. Deployment-specific identifiers, personal paths, real podcast feed configuration and transcript-derived evaluation corpora are excluded or replaced with synthetic examples.
+This is a public portfolio edition of a larger production system. All published demos use synthetic data.
 
 ## Engineering highlights
 
-- deduplicates evidence-based republished episodes before unnecessary downstream work
-- defers one episode on a transient transcription-provider outage without blocking other episodes, with bounded alerting
-- durable Human Review replay, independent feedback saving, bounded audio retention and checkable Vault delivery receipts
-- read-only PodcastOps episode projection and a separately hosted synthetic demo
+- **Resumable processing:** RSS discovery, duplicate detection, persistent episode state and per-episode deferral during provider outages.
+- **Multiple transcripts:** Apple Podcasts where available and OpenRouter Qwen3-ASR, with bounded chunks, retries, timestamp checks, provenance and AI-spend accounting.
+- **Conservative reconciliation:** deterministic alignment checks, bounded AI assistance and explicit Human Review of unresolved material conflicts.
+- **Faster review:** quick choices, materiality filtering, advisory Third-ASR evidence, durable decisions and feedback replay.
+- **Grounded Markdown notes:** a single-pass writer, transcript-anchor checks, SI conversion, structured topics/tags and deterministic rendering.
+- **Operational visibility:** read-only PodcastOps status, audio-retention controls, optional notifications and checksum-based local Vault receipts.
 
-- resumable RSS-driven episode processing with durable GCS-backed state
-- independent Apple Podcasts and OpenRouter `qwen/qwen3-asr-1.7b` transcript acquisition with bounded chunking, retry and spend accounting
-- transcript alignment and conservative multi-source reconciliation
-- deterministic evidence/provenance checks around bounded AI-assisted resolution
-- explicit Human Review for material unresolved conflicts, with prefetched Third-ASR evidence and a materiality-first quick-review queue
-- episode-level AI budget admission, settlement and provenance tracking
-- single-pass, transcript-grounded `knowledge-note-v3` writer with deterministic publication checks
-- Python-owned validation, tag resolution and deterministic metadata/frontmatter construction
-- separate Cloud Run worker and Human Review service boundaries
-- optional Slack signalling and macOS credential/sync helpers
+## About this edition
 
-## Current public snapshot and newer upstream work
+This repository contains a **privacy-safe public edition** of a larger production system. The source is real product code; the demos, example feeds and knowledge-note content are fictional. Production credentials, account-specific configuration and real transcripts are not included.
 
-**Source audited:** private `wintersyntax/podcast-worker` `main` at `d8678469077dd4b644fcc950562e10fd11ee730e` (15 October 2026).
-
-This is a **curated source extraction**, not a private-repository mirror or a production deployment. The October 15 refresh ports the current episode pipeline, materiality/Review flow, single-pass note writer, and synthetic regression coverage for republished-episode detection, provider-outage deferral, bounded review-audio lifecycle, durable review feedback/replay, PodcastOps status projection, and checksum-bound Mac Vault receipts.
-
-The private AI-assisted *software development* workspace was moved on 14 October to a separate private project (TASK-147). It is **not** a component of this podcast product and is not bundled here. Runtime AI-assisted transcript decisions remain bounded by the compiler, budgets and explicit Human Review.
-
-The public branch also removes 69 obsolete legacy summary/benchmark files. Unlike the earlier October 7/12 extraction, current production modules are included, with sanitization. Private runner tooling, production configuration, account identities, real transcripts and evaluation evidence remain excluded. See [exact scope and exclusions](docs/UPSTREAM_STATUS.md).
+For a concise overview of progress, see the [development changelog](CHANGELOG.md).
 
 ## Domain focus
 
-The system is tuned for long-form exercise and nutrition content where small transcription errors can change the meaning of the material being captured. The knowledge pipeline is designed to preserve and structure details such as:
-
-- studies and papers mentioned by the speakers, including authors/year/name as heard, design, sample, duration and reported findings
-- exercise selection, setup, execution and technique
-- training variables, protocols, numerical recommendations and their conditions
-- nutrition, supplementation, recovery and evidence-quality discussions
-- practical takeaways while retaining whether a claim came from research, coaching experience, personal experience or another stated basis
-- named sources and references for later retrieval
-
-This makes the project intentionally more domain-aware than a generic podcast summarizer: the goal is to turn technical exercise/nutrition conversations into searchable notes without silently strengthening, normalizing or inventing what the speakers said.
+The pipeline is designed for exercise-science and nutrition discussions, where incorrect numbers, names, study references and conditions can change the meaning of a recommendation. Notes retain research discussed, exercise technique, training and nutrition protocols, numerical recommendations and the speaker's stated basis for a claim.
 
 ## Why multiple transcript sources?
 
-The historical `Whisper` source name is retained in storage/schema paths, but the current producer is OpenRouter `qwen/qwen3-asr-1.7b`. Producer identity includes the model and stitch policy, so artifacts from the earlier `whisper-large-v3` producer are not reused.
-
-A fluent transcript is not necessarily a trustworthy transcript. Differences involving numbers, units, negations, names, citations or domain terminology can materially change meaning.
-
-This system keeps independent sources separate, compares their evidence, resolves only what can be justified, and stops for human judgment when confidence is insufficient.
+Fluent transcription is not necessarily accurate. Independent readings stay separate, deterministic rules compare their evidence, a bounded resolver handles eligible cases and uncertain material conflicts go to Human Review. The internal storage name `Whisper` is historical; current ASR uses OpenRouter `qwen/qwen3-asr-1.7b`.
 
 ## Architecture
 
@@ -88,20 +62,14 @@ The important boundary is authority: model output can assist inside explicit con
 
 ## Pipeline at a glance
 
-1. Discover the latest configured RSS episode and resume older incomplete work, preserving durable state and duplicate decisions.
-2. Download episode audio to ephemeral worker storage.
-3. Generate the logical "Whisper" source with OpenRouter `qwen/qwen3-asr-1.7b` in bounded chunks, with provenance, budget reservations, seam-safe timestamp validation and bounded rate-limit backoff. Transient provider outages defer only the affected episode.
-4. Detect republished audio/transcript evidence before unnecessary Apple or downstream processing; acquire an independent Apple transcript when available.
-5. Store both source artifacts separately.
-6. Align and compare the sources.
-7. Apply deterministic equivalence/corroboration rules.
-8. Use a bounded resolver only for eligible conflicts.
-9. Prefetch bounded Third-ASR evidence for remaining cards and record a materiality verdict without granting either mechanism transcript authority.
-10. Present Human Review as quick cards first, then one explicit settled-card confirmation, ordinary review for what remains, and finally recompile. Every stored choice remains an audited human decision.
-11. Recompile after durable review decisions.
-12. Generate a structured `knowledge-note-v3` note from the canonical transcript through the verified single-pass knowledge-writer preset; the same response carries topics, people and tag proposals.
-13. Validate structure and transcript anchors in Python, remove unsupported units/sponsor/stub content, convert marked quantities to SI, resolve tags and render the Markdown body deterministically.
-14. Construct frontmatter in Python and publish only after those checks pass.
+1. Discover new RSS episodes and resume incomplete processing from durable state.
+2. Transcribe audio and acquire an independent Apple transcript when available.
+3. Align and reconcile sources conservatively; route material disagreements to Human Review.
+4. Preserve human decisions, recompile and keep the source/provenance trail.
+5. Generate a single-pass, transcript-grounded knowledge note; validate and render it in Python.
+6. Expose read-only status and optional vault-copy receipts.
+
+A transient transcription outage can defer one episode without blocking the others. More detail: [Architecture](docs/ARCHITECTURE.md).
 
 ## PodcastOps status dashboard — synthetic demo
 
@@ -127,26 +95,19 @@ Synthetic fixtures in `tests/fixtures/synthetic/` demonstrate the same review bo
 
 ## Knowledge-note output
 
-The final knowledge artifact is static, so a GIF is not necessary here. The repository includes both a visual preview and a fully synthetic Markdown example rendered from the production note schema and deterministic renderer:
+Knowledge notes are **inspectable Markdown** containing research mentioned, technique, protocols, numbers, tags and references.
 
-![Synthetic knowledge-note output](assets/demo-knowledge-note.png)
+**[Open the synthetic knowledge-note example](examples/demo-knowledge-note.md)**, or run `python scripts/demo_knowledge_note.py` to see a [local preview](http://127.0.0.1:8766). Both use invented source material; no model or cloud service is called.
 
-**[Open the generated knowledge-note example](examples/demo-knowledge-note.md)**
+Claim labels show **what basis the speaker gave**, not an independent score of scientific quality:
 
-It shows the parts this project is designed to preserve for exercise/nutrition podcasts: research discussed, evidence-basis labels, training/nutrition protocols, exercise technique, numerical recommendations, takeaways, tags and sources mentioned.
+- **🔬 Study** — research, a study, review or paper explicitly cited.
+- **🏋️ Coaches** — multi-client coaching experience or reported expert consensus.
+- **👤 One person** — one person's experience or an anecdote.
+- **💬 Opinion** — speculation or a hypothesis without another stated basis.
+- **· unsure** — appended when the speaker hedges; descriptive statements carry no label.
 
-The evidence meter describes **what basis the speaker gave for a claim**, not an independent rating of whether the claim is true or whether a cited study is high quality:
-
-- **▰▰▰ Study** — the speaker explicitly cites research, a study, review or paper.
-- **▰▰▱ Coaches** — coaching experience across multiple clients/athletes, or expert consensus reported by the speaker.
-- **▰▱▱ One person** — one person's own experience or anecdote.
-- **▱▱▱ Opinion** — hypothesis, speculation, or an "I think / I'd guess" claim without another stated basis.
-- **· unsure** — appended when the speaker themselves hedges or expresses uncertainty.
-- Purely descriptive bullets carry no evidence-basis label.
-
-A **Study** label therefore means "research was cited in the episode"; it does **not** mean the system independently verified the paper, methodology or conclusion.
-
-The screenshot provides a quick visual overview, while the rendered Markdown remains the primary inspectable artifact because it can be read, searched and reviewed directly.
+A **🔬 Study** label means research was *cited*, not that the system verified its methodology or conclusions. See the [knowledge-note demo guide](docs/DEMO_KNOWLEDGE_NOTE.md).
 
 ## Repository layout
 
@@ -166,16 +127,9 @@ examples/launchd/      sanitized macOS launch-agent examples
 
 ## Documentation
 
-- [Architecture](docs/ARCHITECTURE.md)
-- [Transcript pipeline](docs/TRANSCRIPT_PIPELINE.md)
-- [Human Review](docs/HUMAN_REVIEW.md)
-- [Synthetic Human Review demo](docs/DEMO_HUMAN_REVIEW.md)\n- [Synthetic PodcastOps dashboard demo](docs/DEMO_PODCASTOPS.md)
-- [Synthetic knowledge-note demo](docs/DEMO_KNOWLEDGE_NOTE.md)
-- [Knowledge generation](docs/KNOWLEDGE_GENERATION.md)
-- [Setup](docs/SETUP.md)
-- [Deployment](docs/DEPLOYMENT.md)
-- [Security and privacy](docs/SECURITY_AND_PRIVACY.md)
-- [Public extraction scope and upstream status](docs/UPSTREAM_STATUS.md)
+[Architecture](docs/ARCHITECTURE.md) · [Transcript pipeline](docs/TRANSCRIPT_PIPELINE.md) · [Human Review](docs/HUMAN_REVIEW.md) · [Knowledge generation](docs/KNOWLEDGE_GENERATION.md) · [Setup](docs/SETUP.md) · [Deployment](docs/DEPLOYMENT.md) · [Security and privacy](docs/SECURITY_AND_PRIVACY.md)
+
+Local synthetic demos: `python scripts/demo_ops_dashboard.py` (port 8767), `python scripts/demo_human_review.py` (port 8765) or `python scripts/demo_knowledge_note.py` (port 8766). Install `requirements.txt` and `requirements.review.txt` first; run each server separately.
 
 ## Configuration
 
@@ -195,16 +149,13 @@ The goal would not be to replace the grounded note pipeline, but to use it as th
 
 ## Development approach
 
-This project was developed with substantial **AI-assisted software development**, but the separate Cline/Host/Semantic-Auditor engineering workspace was extracted into its own private repository and is not shipped in this portfolio. AI tools were used throughout architecture exploration, implementation, test generation and repair, code review, and iterative design. The domain goals, workflow requirements, acceptance criteria, evaluation, integration, and final decisions were shaped iteratively through that human-AI process; this repository is not presented as if every implementation or design idea was independently authored from scratch.
+The system was developed through human-directed design, requirements, evaluation, testing and AI-assisted programming. Source and regression tests are included so its capabilities and limitations can be inspected.
 
 ## Project status
 
-**Active public extraction.** The private production project operates separately. The public repository is a sanitized, testable portfolio version of its podcast product code as of 15 October 2026, not a production deployment.
+**Actively developed.** This is a sanitized public portfolio edition with local synthetic demos, not an authenticated production deployment. Cross-episode semantic search and RAG are possible future extensions, not features shipped today.
 
-Recent work moved the review path from a flat card list toward a materiality-first workflow: Third-ASR evidence can be prefetched before review, harmless differences are separated from truly material conflicts, quick choices are staged before one final save, and each session records bounded audit evidence for later tuning. Protected cases such as differing values, negations, citations and domain-sensitive semantics remain fail-closed.
-
-The private project continues to refine transcript evidence, reviewer workload and note quality. Public `Portfolio CI` separates **Publication safety**, **Dependency** and **Application** checkpoints; private self-hosted runners and exact-main provenance tooling are intentionally not copied. Semantic search and RAG over source-grounded notes remain a **future direction**, not a feature shipped in this public snapshot.
-
+See the [selected development milestones](CHANGELOG.md).
 
 ## License
 
