@@ -4,6 +4,8 @@ from decimal import Decimal
 import io
 import json
 import tempfile
+import subprocess
+import shutil
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -591,6 +593,11 @@ class TranscriberTests(unittest.TestCase):
                 uploaded[destination] = Path(local).read_text(encoding="utf-8")
                 return destination
 
+            def fake_review_audio(source, destination):
+                Path(destination).write_text("review audio", encoding="utf-8")
+                return {"sha256": "sha256:" + "b" * 64, "bytes": 12, "duration": 15.0, "format": "mp3",
+                        "sample_rate": 16000, "channels": 1, "bitrate_kbps": 48}
+
             def post(url, *, headers, json, timeout):
                 requests_sent.append((url, headers, json, timeout))
                 if len(requests_sent) == 1:
@@ -615,6 +622,7 @@ class TranscriberTests(unittest.TestCase):
                 ),
                 patch.object(transcriber, "WHISPER_METADATA_SCHEMA_VERSION", 9, create=True),
                 patch.object(transcriber, "upload_path_to_gcs", side_effect=upload),
+                patch.object(transcriber, "_encode_review_audio", side_effect=fake_review_audio) as encode,
             ):
                 result = transcriber.transcribe_audio(str(audio), episode_key)
 
@@ -668,7 +676,32 @@ class TranscriberTests(unittest.TestCase):
             paths = paths_for(episode_key)
             self.assertEqual(result["text"], paths["whisper_text"])
             self.assertEqual(result["metadata"], paths["whisper_metadata"])
-            self.assertEqual(upload_calls, [paths["whisper_text"], paths["whisper_metadata"]])
+            # TASK-144: the exact transcribed audio is stored first and named
+            # by the metadata, for review clips.
+            self.assertEqual(
+                upload_calls,
+                [paths["whisper_review_audio"], paths["whisper_text"], paths["whisper_metadata"]],
+            )
+            self.assertEqual(encode.call_args.args[0], audio)
+            self.assertEqual(metadata["review_audio"]["path"], paths["whisper_review_audio"])
+            self.assertEqual(metadata["review_audio"]["sha256"], "sha256:" + "b" * 64)
+            self.assertEqual(uploaded[paths["whisper_review_audio"]], "review audio")
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg is not installed")
+    def test_review_audio_is_encoded_in_the_request_format(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source.mp3"
+            subprocess.run(
+                ["ffmpeg", "-nostdin", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
+                 "-ac", "2", "-b:a", "128k", str(source)],
+                check=True,
+            )
+            destination = Path(directory) / "audio.mp3"
+            info = transcriber._encode_review_audio(source, destination)
+            self.assertEqual(info["sha256"], transcriber._audio_fingerprint(destination))
+            self.assertEqual(info["bytes"], destination.stat().st_size)
+            self.assertAlmostEqual(info["duration"], 3.0, delta=0.1)
+            self.assertEqual((info["channels"], info["sample_rate"], info["bitrate_kbps"]), (1, 16000, 48))
 
     def test_missing_credential_fails_before_any_request(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -681,14 +714,32 @@ class TranscriberTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "PODCAST_WHISPER_API_KEY"):
                     transcriber.transcribe_audio(str(audio), "episode-key")
 
-    def test_rejected_request_is_marked_uncertain_and_not_retried(self):
+    def test_provider_outage_after_retries_is_reported_as_unavailable(self):
+        # TASK-145: the Worker defers the episode instead of stopping the run.
+        chunk = AudioChunk(path=Path(__file__), start=0.0, duration=12.0)
+        with (
+            _openrouter_environment(),
+            patch.object(transcriber.requests, "post", side_effect=transcriber.requests.ReadTimeout("slow")),
+            patch.object(transcriber.time, "sleep"),
+        ):
+            with self.assertRaises(transcriber.WhisperProviderUnavailable):
+                transcriber._transcribe_chunk(
+                    chunk,
+                    api_key="k",
+                    language=None,
+                    episode_key="0123456789abcdef01234567",
+                    budget_fingerprint="sha256:" + "a" * 64,
+                    usd_per_second=Decimal("0.0000075"),
+                )
+
+    def _rejected(self, status):
         chunk = AudioChunk(path=Path(__file__), start=0.0, duration=12.0)
         with (
             _openrouter_environment() as budget,
-            patch.object(transcriber.requests, "post", return_value=_FakeResponse({}, status=400)),
+            patch.object(transcriber.requests, "post", return_value=_FakeResponse({}, status=status)),
             patch.object(transcriber.time, "sleep") as sleep,
         ):
-            with self.assertRaisesRegex(RuntimeError, "HTTP 400"):
+            with self.assertRaisesRegex(RuntimeError, f"HTTP {status}") as raised:
                 transcriber._transcribe_chunk(
                     chunk,
                     api_key="k",
@@ -698,9 +749,22 @@ class TranscriberTests(unittest.TestCase):
                     usd_per_second=Decimal("0.0000075"),
                 )
         self.assertEqual(budget["reserve"].call_count, 1)
+        sleep.assert_not_called()
+        # A rejected request is not an outage: it still stops the run.
+        self.assertNotIsInstance(raised.exception, transcriber.WhisperProviderUnavailable)
+        return budget
+
+    def test_rejected_request_settles_at_zero_and_is_not_retried(self):
+        # TASK-128: a 400 proves the provider transcribed nothing.
+        budget = self._rejected(400)
+        budget["uncertain"].assert_not_called()
+        budget["settle"].assert_called_once()
+        self.assertEqual(budget["settle"].call_args.kwargs["actual_usd"], Decimal("0"))
+
+    def test_ambiguous_client_error_stays_uncertain(self):
+        budget = self._rejected(408)
         self.assertEqual(budget["uncertain"].call_count, 1)
         budget["settle"].assert_not_called()
-        sleep.assert_not_called()
 
     def test_transient_failure_retries_once_with_a_fresh_reservation(self):
         chunk = AudioChunk(path=Path(__file__), start=0.0, duration=12.0)
@@ -857,18 +921,18 @@ class TranscriberTests(unittest.TestCase):
             transcriber._validate_monotonic_timestamps(segments)
 
     def test_segment_join_step_of_a_tenth_of_a_second_is_clamped(self):
-        # Synthetic segment-join case: one segment ends at 27.6 s while the
-        # next segment begins at 27.5 s.
+        # Production Ep 391: "competition." placed at 27.6 s, the next
+        # segment's "They" at 27.5 s.
         payload = {
             "segments": [
-                {"start": 20.0, "end": 27.5, "text": "the final stage example.", "avg_logprob": -0.1, "no_speech_prob": 0.0},
-                {"start": 27.5, "end": 30.0, "text": "Next words", "avg_logprob": -0.1, "no_speech_prob": 0.0},
+                {"start": 20.0, "end": 27.5, "text": "the pure physique competition.", "avg_logprob": -0.1, "no_speech_prob": 0.0},
+                {"start": 27.5, "end": 30.0, "text": "They were", "avg_logprob": -0.1, "no_speech_prob": 0.0},
             ],
             "words": [
-                {"word": "stage", "start": 26.88, "end": 27.2},
-                {"word": "example.", "start": 27.6, "end": 27.6},
-                {"word": "Next", "start": 27.5, "end": 28.3},
-                {"word": "words", "start": 28.3, "end": 28.46},
+                {"word": "physique", "start": 26.88, "end": 27.2},
+                {"word": "competition.", "start": 27.6, "end": 27.6},
+                {"word": "They", "start": 27.5, "end": 28.3},
+                {"word": "were", "start": 28.3, "end": 28.46},
             ],
         }
         segments = transcriber._openrouter_segment_metadata(payload)
@@ -892,24 +956,25 @@ class TranscriberTests(unittest.TestCase):
         rebuilt = transcriber._rebuild_segment_from_words(segments[0], segments[0]["words"])
         self.assertEqual(rebuilt["text"], "What's up, everybody?")
 
-    def test_small_backward_step_at_chunk_seam_is_clamped(self):
-        segments = [
-            {"id": 0, "start": 3598.0, "end": 3602.9, "text": "a b", "words": [
-                {"word": " a", "start": 3598.0, "end": 3600.0},
-                {"word": " b", "start": 3602.43, "end": 3602.46},
-            ]},
-            {"id": 1, "start": 3602.4, "end": 3605.0, "text": "c d", "words": [
-                {"word": " c", "start": 3602.40, "end": 3602.80},
-                {"word": " d", "start": 3603.0, "end": 3603.5},
-            ]},
-        ]
+    def test_small_backward_step_at_a_chunk_seam_is_clamped(self):
+        # 2026-10-12 production: after stitching chunks 6 and 7 a word at
+        # 3602.40 s started 0.03 s before the previous chunk's last kept word.
+        previous = [{"id": 0, "start": 3598.0, "end": 3602.9, "text": "a b", "words": [
+            {"word": " a", "start": 3598.0, "end": 3600.0},
+            {"word": " b", "start": 3602.43, "end": 3602.46},
+        ]}]
+        current = [{"id": 0, "start": 3602.4, "end": 3605.0, "text": "c d", "words": [
+            {"word": " c", "start": 3602.40, "end": 3602.80},
+            {"word": " d", "start": 3603.0, "end": 3603.5},
+        ]}]
+        segments = previous + current
         with self.assertRaises(RuntimeError):
             transcriber._validate_monotonic_timestamps(segments)
         self.assertEqual(transcriber._clamp_small_word_backsteps(segments), 1)
         transcriber._validate_monotonic_timestamps(segments)
         self.assertAlmostEqual(segments[1]["words"][0]["start"], 3602.43)
 
-    def test_large_backward_step_still_rejected(self):
+    def test_large_backward_step_across_the_timeline_still_fails_closed(self):
         segments = [{"id": 0, "start": 0.0, "end": 9.0, "text": "a b", "words": [
             {"word": " a", "start": 5.0, "end": 5.5},
             {"word": " b", "start": 4.0, "end": 4.5},

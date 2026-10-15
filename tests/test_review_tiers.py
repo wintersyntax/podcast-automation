@@ -9,7 +9,7 @@ from unittest.mock import patch
 from compiler.review_tiers import REVIEW_TIER_POLICY_VERSION, derive_review_tier
 from podcast_engine import human_review
 from podcast_engine.review_web import create_review_app
-from tests.test_third_asr_window import SYNTHETIC_LONG_CLIP
+from tests.test_third_asr_window import JEWETT_357
 
 
 def _card(difference_id=1, **overrides):
@@ -37,12 +37,13 @@ def _triage(source, confidence="high"):
 
 def _two_of_three(**overrides):
     card = _card(category="negation", risk_reasons=["negation"], **{
-        key: copy.deepcopy(value) for key, value in SYNTHETIC_LONG_CLIP.items()
+        key: copy.deepcopy(value) for key, value in JEWETT_357.items()
     })
     card["third_asr"] = {
         "text": (
-            "In the rehearsal there can be errors that can happen. So thinking "
-            "about that as a range helps the team plan."
+            "Look for the stage, as in the competitors you're up against, the "
+            "lighting, what the judges want to see. There's lots of errors that "
+            "will play. So thinking about that as more of a, like, not a bullseye."
         )
     }
     card.update(overrides)
@@ -89,10 +90,10 @@ class DeriveReviewTierTests(unittest.TestCase):
     def test_exact_two_of_three_admits_even_a_protected_card(self):
         tier = derive_review_tier(_two_of_three())
         self.assertEqual((tier["tier"], tier["reason"], tier["source"]), ("A", "two_of_three", "apple"))
-        self.assertEqual(tier["text"], SYNTHETIC_LONG_CLIP["apple_text"])
+        self.assertEqual(tier["text"], JEWETT_357["apple_text"])
 
     def test_third_voice_with_a_new_reading_is_tier_b(self):
-        tier = derive_review_tier(_card(**{key: copy.deepcopy(value) for key, value in SYNTHETIC_LONG_CLIP.items()}))
+        tier = derive_review_tier(_card(**{key: copy.deepcopy(value) for key, value in JEWETT_357.items()}))
         self.assertEqual((tier["tier"], tier["reason"]), ("B", "third_new_reading"))
 
     def test_conflicting_signals_never_produce_tier_a(self):
@@ -101,7 +102,7 @@ class DeriveReviewTierTests(unittest.TestCase):
         protected_conflict = derive_review_tier(_two_of_three(triage=_triage("whisper")))
         self.assertEqual((protected_conflict["tier"], protected_conflict["reason"]), ("C", "conflicting_evidence"))
         heard_else = derive_review_tier(_card(
-            triage=_triage("apple"), **{key: copy.deepcopy(value) for key, value in SYNTHETIC_LONG_CLIP.items()}
+            triage=_triage("apple"), **{key: copy.deepcopy(value) for key, value in JEWETT_357.items()}
         ))
         self.assertEqual((heard_else["tier"], heard_else["reason"]), ("B", "conflicting_evidence"))
 
@@ -245,6 +246,19 @@ class TierWebTests(unittest.TestCase):
         self.assertIn("id=third-prefetch ", PAGE)
         self.assertIn("renderAssisted();prefetchThird()}", PAGE)
         self.assertIn("(t==='B'||t==='C')&&(!c.third_asr||c.third_refresh)", PAGE)
+
+    def test_materiality_queue_shows_one_path_and_prepares_the_third_voice_itself(self):
+        # TASK-144: with the materiality queue the legacy group panels (tier A,
+        # batch, Assisted review with its tick boxes) and the "not yet
+        # prepared" banner are hidden; the third-voice status sits above the
+        # cards; every card left for detailed review gets the third voice.
+        from podcast_engine.review_web import PAGE
+
+        self.assertLess(PAGE.index("id=third-prefetch "), PAGE.index("id=materiality "))
+        self.assertLess(PAGE.index("<div id=app>"), PAGE.index("id=advanced"))
+        self.assertIn("advanced.classList.toggle('hidden',legacyOff)", PAGE)
+        self.assertIn("count===0||legacyOff", PAGE)
+        self.assertIn("mGroup(c)==='full'&&(!c.third_asr||c.third_refresh)", PAGE)
 
 
 

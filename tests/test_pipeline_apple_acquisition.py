@@ -16,6 +16,16 @@ from podcast_engine.pipeline import (
 class PipelineAppleAcquisitionTests(
     unittest.TestCase
 ):
+    def setUp(self):
+        # TASK-135: the duplicate check reads GCS; it is covered in
+        # tests/test_episode_duplicates.py.
+        patcher = patch(
+            "podcast_engine.pipeline._record_duplicate_if_found",
+            side_effect=lambda episode: episode,
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     feed_url = (
         "https://example.test/feed.xml"
     )
@@ -309,6 +319,64 @@ class PipelineAppleAcquisitionTests(
         )
         self.assertEqual(
             outcome["reason"], "not_ready")
+
+    def test_unusable_apple_token_leaves_the_episode_retryable(
+        self,
+    ):
+        """TASK-117: the credential failure no longer escapes the episode."""
+        from podcast_engine.apple_acquisition import AppleCredentialUnavailable
+
+        episode = self._episode(
+            "Mon, 10 Aug 2026 "
+            "12:00:00 +0000"
+        )
+        rss_episode = {
+            "podcast": "Test Podcast",
+            "feed_url": self.feed_url,
+            "guid": self.guid,
+            "title": "Test Episode",
+        }
+
+        with (
+            patch(
+                "podcast_engine.pipeline._rss_episode",
+                return_value=rss_episode,
+            ),
+            patch(
+                "podcast_engine.pipeline.get_episode_by_key",
+                return_value=None,
+            ),
+            patch(
+                "podcast_engine.pipeline.add_episode",
+                return_value=episode,
+            ),
+            patch(
+                "podcast_engine.pipeline._transcribe_if_needed",
+                return_value=episode,
+            ),
+            patch(
+                "podcast_engine.pipeline._apple_acquisition_due",
+                return_value=True,
+            ),
+            patch(
+                "podcast_engine.pipeline._emit_apple_transcript_late_if_needed",
+                side_effect=lambda value: value,
+            ),
+            patch(
+                "podcast_engine.pipeline.update_episode"
+            ) as update,
+            patch(
+                "podcast_engine.pipeline.acquire_apple_transcript",
+                side_effect=AppleCredentialUnavailable("token expired"),
+            ),
+        ):
+            outcome = process_episode(
+                self.podcast_config
+            )
+
+        self.assertEqual(outcome["status"], "waiting_for_apple_transcript")
+        self.assertEqual(outcome["reason"], "apple_credential_unavailable")
+        update.assert_not_called()
 
     def test_pipeline_does_not_call_apple_before_delay(
         self,

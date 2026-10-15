@@ -17,7 +17,7 @@ from podcast_engine.notifications import (
     review_tier_summary,
 )
 
-EPISODE = {"episode_key": "a" * 24, "podcast": "Example Podcast", "title": "Ep 1"}
+EPISODE = {"episode_key": "a" * 24, "podcast": "Iron Culture", "title": "Ep 1"}
 KEY_ENV = {"PODCAST_REVIEW_ASR_API_KEY": "third-key", "PODCAST_WORKER_THIRD_ASR_PREFETCH": "1"}
 
 
@@ -48,7 +48,7 @@ class PrefetchEnabledTests(unittest.TestCase):
 
 
 class PrefetchRunTests(unittest.TestCase):
-    def _run(self, record, *, ensure, tiers, workers=1, sleep=lambda _: None):
+    def _run(self, record, *, ensure, tiers, workers=1, sleep=lambda _seconds: None):
         with (
             patch.dict(os.environ, KEY_ENV, clear=False),
             patch.object(prefetch, "derive_review_tier", side_effect=_tiers_by_id(tiers)),
@@ -101,7 +101,10 @@ class PrefetchRunTests(unittest.TestCase):
         self.assertEqual(summary["stopped_reason"], "BudgetAdmissionError")
         self.assertIsNotNone(summary["tiers"])
 
-    def test_budget_contention_retries_successfully(self):
+    def test_budget_ledger_contention_is_retried_not_a_stop(self):
+        # 2026-10-12: three parallel reservations lost the ledger race and
+        # the prefetch stopped after 5 of 74 cards. Nothing is reserved or
+        # claimed on BudgetConcurrencyError, so the card is simply retried.
         record = {"human_review": [_item(1), _item(2)]}
         attempts, waits = [], []
 
@@ -117,7 +120,7 @@ class PrefetchRunTests(unittest.TestCase):
         self.assertEqual(attempts.count(1), 3)
         self.assertEqual(len(waits), 2)
 
-    def test_persistent_budget_contention_still_stops(self):
+    def test_persistent_ledger_contention_still_stops(self):
         record = {"human_review": [_item(1), _item(2)]}
 
         def ensure(episode, item_id):

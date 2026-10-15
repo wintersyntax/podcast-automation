@@ -13,6 +13,11 @@ class WorkerRecompileLifecycleTests(unittest.TestCase):
         "PODCAST_RECOMPILE_EPISODE_KEY": "episode-1",
     }
 
+    def setUp(self):
+        self.failure_audit_patcher = patch("worker.mark_correlated_recompile_failed")
+        self.failure_audit = self.failure_audit_patcher.start()
+        self.addCleanup(self.failure_audit_patcher.stop)
+
     def test_successful_target_pipeline_persists_original_request_completion(self):
         outcomes = [{"status": "completed", "episode": {"episode_key": "episode-1"}}]
         with patch.dict(os.environ, self.correlation, clear=False), patch(
@@ -27,25 +32,20 @@ class WorkerRecompileLifecycleTests(unittest.TestCase):
             review_generation="sha256:original-review",
         )
 
-    def test_summary_review_activation_wait_persists_recompile_completion(self):
+    def test_retired_summary_review_wait_state_no_longer_completes_a_recompile(self):
         outcomes = [
             {
                 "status": "waiting_for_summary_review_activation",
-                "reason": "reviewer_not_activated",
                 "episode": {"episode_key": "episode-1"},
             }
         ]
         with patch.dict(os.environ, self.correlation, clear=False), patch(
             "worker.run_pipeline", return_value=outcomes
         ), patch("worker.complete_recompile_request") as complete:
-            result = worker.main()
+            with self.assertRaisesRegex(RuntimeError, "did not complete the full pipeline"):
+                worker.main()
 
-        self.assertEqual(result, outcomes)
-        complete.assert_called_once_with(
-            "episode-1",
-            request_id="request-123",
-            review_generation="sha256:original-review",
-        )
+        complete.assert_not_called()
 
     def test_correlated_review_required_target_fails_without_terminal_write(self):
         outcomes = [{"status": "review_required", "episode": {"episode_key": "episode-1"}}]
@@ -56,6 +56,10 @@ class WorkerRecompileLifecycleTests(unittest.TestCase):
                 worker.main()
 
         complete.assert_not_called()
+        self.failure_audit.assert_called_once_with(
+            "episode-1", request_id="request-123",
+            review_generation="sha256:original-review", reason="review_required",
+        )
 
     def test_correlated_target_missing_from_outcomes_fails_without_terminal_write(self):
         outcomes = [{"status": "completed", "episode": {"episode_key": "other-episode"}}]
@@ -109,6 +113,10 @@ class WorkerRecompileLifecycleTests(unittest.TestCase):
                 worker.main()
 
         complete.assert_not_called()
+        self.failure_audit.assert_called_once_with(
+            "episode-1", request_id="request-123",
+            review_generation="sha256:original-review", reason="worker_exception",
+        )
 
     def test_incomplete_correlation_fails_before_running_pipeline(self):
         environment = {**self.correlation, "PODCAST_REVIEW_GENERATION": ""}

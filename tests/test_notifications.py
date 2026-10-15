@@ -18,7 +18,7 @@ class NotificationTests(unittest.TestCase):
     def setUp(self):
         self.episode = {
             "episode_key": "episode-123",
-            "podcast": "Example Nutrition Podcast",
+            "podcast": "Revive Stronger",
             "title": "Example Episode",
         }
 
@@ -37,7 +37,7 @@ class NotificationTests(unittest.TestCase):
             payload["text"],
             (
                 "Podcast ready for review: "
-                "Example Nutrition Podcast — Example Episode"
+                "Revive Stronger — Example Episode"
             ),
         )
 
@@ -209,7 +209,7 @@ class NotificationTests(unittest.TestCase):
             payload["blocks"][0]["text"]["text"],
             "✅ Summary ready",
         )
-        self.assertIn("Example Nutrition Podcast", serialized)
+        self.assertIn("Revive Stronger", serialized)
         self.assertIn("Example Episode", serialized)
         self.assertIn("30 Aug 2026, 23:41", serialized)
         self.assertNotIn("2026-08-30T21:41:19.510315+00:00", serialized)

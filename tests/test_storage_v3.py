@@ -128,5 +128,22 @@ class StorageV3Tests(unittest.TestCase):
         save_episodes.assert_called_once()
 
 
+    def test_published_whisper_transcript_clears_a_deferral(self):
+        # TASK-145: the deferral marker lives only until the transcript exists.
+        record = new_episode_record(
+            episode_key="episode-1", podcast="Podcast", podcast_id="podcast",
+            feed_url="https://example.test/feed.xml", rss_guid="guid-1", title="T",
+            published=None, link=None, audio_url=None,
+        )
+        with (
+            patch("podcast_engine.storage.load_episodes_with_generation", side_effect=lambda: ([record], 1)),
+            patch("podcast_engine.storage.save_episodes"),
+        ):
+            deferred = update_episode("episode-1", whisper_deferred_since="2026-10-12T17:41:40+00:00")
+            self.assertEqual(deferred["whisper_deferred_since"], "2026-10-12T17:41:40+00:00")
+            published = update_episode("episode-1", transcript_file="episodes/episode-1/sources/whisper/transcript.txt")
+        self.assertNotIn("whisper_deferred_since", published)
+
+
 if __name__ == "__main__":
     unittest.main()

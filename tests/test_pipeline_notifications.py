@@ -164,7 +164,7 @@ class PipelineNotificationTests(unittest.TestCase):
 
     def test_human_review_notification_is_structured_json(self):
         episode = {
-            "podcast": "Example Nutrition Podcast",
+            "podcast": "Revive Stronger",
             "title": "Example Episode",
             "episode_key": "episode-123",
         }
@@ -194,7 +194,7 @@ class PipelineNotificationTests(unittest.TestCase):
                 "severity": "NOTICE",
                 "message": "Podcast human review required",
                 "event": "human_review_required",
-                "podcast": "Example Nutrition Podcast",
+                "podcast": "Revive Stronger",
                 "title": "Example Episode",
                 "episode_key": "episode-123",
                 "pending_count": 3,
@@ -204,7 +204,7 @@ class PipelineNotificationTests(unittest.TestCase):
 
     def test_refreshed_notification_is_structured_and_excludes_transcript_text(self):
         episode = {
-            "podcast": "Example Nutrition Podcast",
+            "podcast": "Revive Stronger",
             "title": "Example Episode",
             "episode_key": "episode-123",
         }
@@ -250,7 +250,7 @@ class PipelineNotificationTests(unittest.TestCase):
 
     def test_notification_emits_only_on_first_review_required_transition(self):
         rss_episode = {
-            "podcast": "Example Nutrition Podcast",
+            "podcast": "Revive Stronger",
             "feed_url": "https://example.test/feed.xml",
             "guid": "guid-123",
             "title": "Example Episode",
@@ -276,7 +276,7 @@ class PipelineNotificationTests(unittest.TestCase):
                 episode = {
                     "id": "episode-123",
                     "episode_key": "episode-123",
-                    "podcast": "Example Nutrition Podcast",
+                    "podcast": "Revive Stronger",
                     "title": "Example Episode",
                     "status": {
                         "compiler": {
@@ -370,7 +370,7 @@ class PipelineNotificationTests(unittest.TestCase):
                 ):
                     result = pipeline.process_episode(
                         {
-                            "name": "Example Nutrition Podcast",
+                            "name": "Revive Stronger",
                         }
                     )
 

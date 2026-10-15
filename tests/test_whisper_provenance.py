@@ -24,6 +24,7 @@ class WhisperProvenanceTests(unittest.TestCase):
                 else producer
             ),
             "segments": [],
+            "review_audio": {"path": "episodes/k/sources/whisper/audio.mp3", "sha256": "sha256:" + "0" * 64, "bytes": 1},
         }
 
     def test_model_manifest_schema_constant_drives_validation(self):
@@ -82,6 +83,7 @@ class WhisperProvenanceTests(unittest.TestCase):
             "model": provenance.MODEL_ID,
             "producer": producer,
             "segments": [],
+            "review_audio": {"path": "episodes/k/sources/whisper/audio.mp3", "sha256": "sha256:" + "0" * 64, "bytes": 1},
         }
 
         with patch.object(
@@ -147,6 +149,16 @@ class WhisperProvenanceTests(unittest.TestCase):
                 self._metadata()
             )
         )
+
+    def test_metadata_without_stored_review_audio_is_not_reusable(self):
+        # TASK-144: review clips need the exact transcribed audio.
+        for review_audio in (None, {}, {"path": "x.mp3", "sha256": "sha256:0", "bytes": 1},
+                             {"path": "episodes/k/sources/whisper/audio.mp3", "sha256": "abc", "bytes": 1},
+                             {"path": "episodes/k/sources/whisper/audio.mp3", "sha256": "sha256:0", "bytes": 0}):
+            with self.subTest(review_audio=review_audio):
+                metadata = self._metadata()
+                metadata["review_audio"] = review_audio
+                self.assertFalse(provenance.whisper_metadata_matches_current_producer(metadata))
 
     def test_legacy_v1_metadata_is_not_reusable(self):
         metadata = {

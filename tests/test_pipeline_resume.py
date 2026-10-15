@@ -19,6 +19,16 @@ from podcast_engine.pipeline import (
 
 
 class PipelineResumeTests(unittest.TestCase):
+    def setUp(self):
+        # TASK-135: the duplicate check reads GCS; it is covered in
+        # tests/test_episode_duplicates.py.
+        patcher = patch(
+            "podcast_engine.pipeline._record_duplicate_if_found",
+            side_effect=lambda episode: episode,
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     podcast = {
         "id": "test-podcast",
         "name": "Test Podcast",
@@ -317,6 +327,7 @@ class PipelineResumeTests(unittest.TestCase):
                 "model": "qwen/qwen3-asr-1.7b",
                 "producer": current_whisper_producer(),
                 "segments": [],
+                "review_audio": {"path": "episodes/reconcile-key/sources/whisper/audio.mp3", "sha256": "sha256:" + "0" * 64, "bytes": 1},
             }
         ).encode("utf-8")
 
@@ -496,6 +507,71 @@ class PipelineResumeTests(unittest.TestCase):
                 "older-key",
             ],
         )
+
+    def _run_with_resume(self, side_effect, *, deferred_since=None):
+        latest = self._waiting_for_apple("latest-key", "latest-guid")
+        older = self._waiting_for_apple("older-key", "older-guid")
+        stored = dict(latest)
+        if deferred_since is not None:
+            stored["whisper_deferred_since"] = deferred_since
+        with (
+            patch("podcast_engine.pipeline.ENABLED_PODCASTS", [self.podcast]),
+            patch("podcast_engine.pipeline.discover_latest_rss_episode", return_value=latest),
+            patch("podcast_engine.pipeline.load_episodes", return_value=[latest, older]),
+            patch("podcast_engine.pipeline.get_episode_by_key", return_value=stored),
+            patch("podcast_engine.pipeline.update_episode") as update,
+            patch("podcast_engine.pipeline._retain_review_audio"),
+            patch("podcast_engine.pipeline.emit_event") as event,
+            patch("podcast_engine.pipeline.resume_tracked_episode", side_effect=side_effect) as resume,
+        ):
+            try:
+                outcomes = run_pipeline()
+                error = None
+            except Exception as raised:  # noqa: BLE001
+                outcomes, error = None, raised
+        return outcomes, error, resume, event, update
+
+    @staticmethod
+    def _outage_on_latest(_podcast, episode):
+        from podcast_engine.transcriber import WhisperProviderUnavailable
+
+        if episode["episode_key"] == "latest-key":
+            raise WhisperProviderUnavailable("OpenRouter Whisper transcription failed (ReadTimeout)")
+        return {"status": "waiting_for_apple_transcript", "episode": episode}
+
+    def test_provider_outage_defers_one_episode_quietly_and_the_others_still_run(self):
+        # TASK-145: a ReadTimeout on one episode's transcription no longer
+        # stops the others; the user does not mind which day it completes.
+        outcomes, error, resume, event, update = self._run_with_resume(self._outage_on_latest)
+        self.assertIsNone(error)
+        self.assertEqual([c.args[1]["episode_key"] for c in resume.call_args_list], ["latest-key", "older-key"])
+        self.assertEqual(outcomes[0]["status"], "deferred")
+        self.assertFalse(outcomes[0]["stalled"])
+        self.assertEqual(update.call_args.args[0], "latest-key")
+        self.assertIn("whisper_deferred_since", update.call_args.kwargs)
+        deferred = [c for c in event.call_args_list if c.args[0] == "episode_deferred"]
+        self.assertEqual(len(deferred), 1)
+        self.assertEqual(deferred[0].kwargs["severity"], "INFO")
+
+    def test_episode_deferred_for_more_than_three_days_fails_the_run_after_the_others(self):
+        from datetime import datetime, timedelta, timezone
+        from podcast_engine.pipeline import EpisodesDeferred
+
+        since = (datetime.now(timezone.utc) - timedelta(days=4)).isoformat()
+        outcomes, error, resume, event, update = self._run_with_resume(self._outage_on_latest, deferred_since=since)
+        self.assertIsInstance(error, EpisodesDeferred)
+        self.assertEqual(resume.call_count, 2)
+        update.assert_not_called()
+        deferred = [c for c in event.call_args_list if c.args[0] == "episode_deferred"]
+        self.assertEqual(deferred[0].kwargs["severity"], "WARNING")
+
+    def test_other_errors_still_stop_the_run(self):
+        def resume(_podcast, episode):
+            raise RuntimeError("Human review state is inconsistent; pipeline is blocked.")
+
+        _, error, resume_mock, _, _ = self._run_with_resume(resume)
+        self.assertEqual(resume_mock.call_count, 1)
+        self.assertEqual(str(error), "Human review state is inconsistent; pipeline is blocked.")
 
     def test_completed_older_episode_is_not_resumed(self):
         latest = self._waiting_for_apple(
