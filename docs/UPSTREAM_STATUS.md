@@ -1,54 +1,40 @@
 # Public extraction scope and upstream status
 
-This repository is a **curated portfolio extraction**, not a live, byte-for-byte mirror of the private production project. It deliberately demonstrates core engineering boundaries with safe configuration, synthetic fixtures and public tests.
+**Audited private source:** `wintersyntax/podcast-worker` at `d8678469077dd4b644fcc950562e10fd11ee730e` (15 October 2026).
+**Public base:** `wintersyntax/podcast-automation` at `2e869bb057b21c1d795f09ca5754a94cdbac4938`.
+This repository is an independently tested, curated **derivative**, not an automatic mirror, a production deployment, or a transfer of private Git history.
 
-**Comparison date:** 12 October 2026. The public baseline was curated on 7 October, with targeted ASR reliability code and tests added on 12 October. The private system continued to evolve on 8–12 October. A passing public CI run proves the published snapshot's test suite, **not** that every later private production feature has been copied here.
+## Included in the October 15 extraction
 
-## What the public source demonstrates
-
-| Area | Included in the published extraction |
+| Area | Public source state |
 | --- | --- |
-| Pipeline | Resumable RSS/audio ingestion, independent Apple and OpenRouter Qwen3-ASR source handling, provenance and spend controls |
-| Compiler | Bounded alignment and reconciliation, conservative conflict authority, Third-ASR evidence and materiality logic |
-| Human Review | Materiality-first quick cards, explicit settled-card acceptance, detailed review and synthetic interactive demo |
-| Knowledge | Single-pass structured `knowledge-note-v3` writer, deterministic validation/rendering and a synthetic rendered note |
-| Integration | Separate worker/review services, optional Slack and Mac helpers, example configuration and curated regression tests |\n| PodcastOps demo UI | The production frontend template is publicly inspectable through an offline, read-only synthetic server; the private GCS-backed status projection and authentication are not ported |
+| RSS / Apple / OpenRouter ASR | Current lifecycle, provider-defer/resume behavior, versioned duplicate classification, conservative transcript alignment, bounded retries and spend accounting |
+| Human Review | Current materiality/Third-ASR evidence, guarded review decisions and replay, feedback persistence, bounded review-audio cleanup |
+| Knowledge notes | Single-pass `knowledge-note-v3` writer, transcript-anchored validation, deterministic rendering, SI quantities, tags and frontmatter |
+| Operations | Read-only PodcastOps projection, vault receipt helpers and local sync logic, plus separately isolated synthetic episode dashboard |
+| Regression tests | Current sanitized tests for those paths, synthetic fixtures and original public demonstration tests |
+| CI | Public-specific Publication safety, hash-locked Dependency and Application checkpoints |
 
-## Public runtime fixes extracted on 12 October 2026
+## Removed from the previous public snapshot
 
-| Area | Included in this public update |
-| --- | --- |
-| ASR timestamps | Tiny backward word-start steps at stitched chunk seams are clamped within the existing tolerance; larger regressions still fail validation. |
-| Third-ASR budget concurrency | Transient generation/CAS contention is retried with bounded jittered backoff; persistent contention still stops prefetch. |
-| Synthetic regression coverage | Tests verify both recovery and preserved fail-closed behavior without any real episode transcript. |
+The previous public extraction retained an older summary/metadata implementation and review-benchmark compatibility files, even though the private source had removed them. The refresh deletes **69 obsolete production, test, benchmark and prompt files** that are absent from the current private podcast product. The live note path now uses `podcast_engine/knowledge/orchestration.py`, `notes_v3`, `episode_inputs.py` and `quantities.py`.
 
-These narrowly extracted changes come from private TASK-125 and TASK-126. Public Portfolio CI must independently verify them.
+The private development-tool split (TASK-147, 14 October) removed the Cline Host/console, Semantic Auditor, TypingMind bridge, their policy hooks, node contracts and historical planning evidence into **a separate private AI-assisted development-workflow project**. Those development tools were **not part of this public podcast product**, and this extraction does not import them. Runtime AI-assisted transcript evidence/resolution remains part of the podcast pipeline under its separate constraints.
 
-## Verified later private-production milestones — not fully ported here
+## Deliberately not published
 
-| Area | Added or proven in private production after the public baseline |
-| --- | --- |
-| Republished episodes | Versioned, evidence-based duplicate classification before Apple acquisition or subsequent processing, with an explicit operator override |
-| Review durability | Legacy-safe versioned review queue identity, bounded full-span decision replay and independently persisted post-review feedback notes |
-| PodcastOps | Authenticated read-only episode/card status and delivery dashboard, separated from the review queue; optional evidence failures do not hide episode status |
-| Mac Vault delivery | Checksum-bound, idempotent local-copy receipts; the dashboard distinguishes `summary ready` from `Mac copy confirmed`. A local receipt is **not** proof of remote iCloud upload |
-| Operational verification | Production demonstrations of duplicate suppression, completed review replay, independent feedback saving and scheduled Vault Sync recovery |
-| Review audio | Clips cut from the actual transcribed source audio and removed after episode completion (TASK-144), not ported |
-| Provider outage | Per-episode transcription deferral with continued processing and alerting after prolonged unavailability (TASK-145), not ported |
+- Private repository history, production ledger/tasks, archived planning and operational evidence.
+- Live RSS feeds, real transcripts, reviewer comments, corpus-evaluation documents and account-specific configuration.
+- API credentials, OAuth/client secrets, personal emails or paths, real Cloud resource names, bucket names, review service URLs, IAM bindings and deploy access.
+- Self-hosted Mac runner registration, supervisor control, exact-main provenance scripts and private CI operating runbooks. The public repository keeps its existing GitHub Actions portfolio job; its checkpoints are not a claim of private CI equivalence.
+- The authenticated **deployment** of the private PodcastOps UI. The public `ops_dashboard.py` source is not connected to production data, while `scripts/demo_ops_dashboard.py` always serves invented data on loopback.
 
-These rows describe **upstream production progress not yet mirrored in the public source**, not missing-file bugs in the portfolio build. The synthetic PodcastOps demo added later includes only the presentation template and fabricated API response; it is not a port of the production backend. They must not be described as implemented in the checked-in public source until the corresponding sanitized implementation and regression tests are deliberately ported and pass this repository's CI.
+## Sanitization and verification
 
-## Media and demo boundary
+The extraction replaced production resource defaults with placeholders, anonymized an authentication email default and review tests, retained the disabled `config/podcasts.json` and example OpenRouter lock, and preserved public-only synthetic demos and media.
 
-- `assets/demo-human-review.gif` is the tracked Human Review animation; its launcher uses fabricated podcast/transcript content.
-- `assets/demo-knowledge-note.png` is the tracked static preview, with the corresponding inspectable synthetic Markdown at `examples/demo-knowledge-note.md`.
-- The knowledge-note guide's asset is a **PNG**, not a second published GIF. Do not imply that an uncommitted or separately recorded GIF has been shipped.
-- The two demos do not require production credentials, real podcast material or live cloud APIs.
+`scripts/check_public_release.py` rejects known credential patterns, internal/private paths, real resource identifiers and personalized defaults from all tracked text files; `Portfolio CI` also verifies hash-locked dependencies and the public application suite. Human review of the patch remains mandatory: a pattern-based scanner cannot prove that every sensitive datum is absent.
 
-## Publication and verification rules
+The production transcript pipeline is **not** publicly runnable with the committed placeholders. Readers can run the synthetic Human Review, PodcastOps and knowledge-note demos without production credentials. A private Main acceptance success never substitutes for public PR CI or public merge acceptance.
 
-Never copy the private repository wholesale. Before porting a private change, review the exact source and tests for production resource names, account identifiers, personal paths, private podcast configuration, raw transcripts, evaluation cases, credentials and endpoint URLs. Substitute synthetic fixtures where needed; retain deterministic and human-approval authority boundaries.
-
-The public GitHub Actions workflow runs the curated test suite on the public checkout. Any subsequent source update needs its own public PR and successful CI. Private-repository acceptance cannot substitute for public-repository verification, nor can public CI prove the separate private production deployment.
-
-For system design and demo details, see [Architecture](ARCHITECTURE.md), [Human Review](HUMAN_REVIEW.md), [Knowledge generation](KNOWLEDGE_GENERATION.md) and [Security and privacy](SECURITY_AND_PRIVACY.md).
+For further context: [Architecture](ARCHITECTURE.md), [Knowledge generation](KNOWLEDGE_GENERATION.md), [Synthetic PodcastOps demo](DEMO_PODCASTOPS.md), and [Security and privacy](SECURITY_AND_PRIVACY.md).

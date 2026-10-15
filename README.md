@@ -11,6 +11,11 @@ This repository is a curated portfolio version of a larger private production pr
 
 ## Engineering highlights
 
+- deduplicates evidence-based republished episodes before unnecessary downstream work
+- defers one episode on a transient transcription-provider outage without blocking other episodes, with bounded alerting
+- durable Human Review replay, independent feedback saving, bounded audio retention and checkable Vault delivery receipts
+- read-only PodcastOps episode projection and a separately hosted synthetic demo
+
 - resumable RSS-driven episode processing with durable GCS-backed state
 - independent Apple Podcasts and OpenRouter `qwen/qwen3-asr-1.7b` transcript acquisition with bounded chunking, retry and spend accounting
 - transcript alignment and conservative multi-source reconciliation
@@ -24,13 +29,13 @@ This repository is a curated portfolio version of a larger private production pr
 
 ## Current public snapshot and newer upstream work
 
-The public source baseline was curated on **7 October 2026**, with two narrowly scoped runtime reliability fixes added on **12 October 2026**. The private production project has advanced further, but this repository is intentionally **not** an automatic mirror.
+**Source audited:** private `wintersyntax/podcast-worker` `main` at `d8678469077dd4b644fcc950562e10fd11ee730e` (15 October 2026).
 
-As of **12 October 2026**, newer upstream work includes republished-episode detection before unnecessary downstream processing, a read-only PodcastOps episode-status dashboard, checksum-bound receipts that distinguish a local Mac Vault copy from cloud/iCloud delivery, and stronger Human Review replay, queue identity and independently saved feedback. These are verified **private-production milestones**, **not** claims that all those newer code paths are included in this public snapshot.
+This is a **curated source extraction**, not a private-repository mirror or a production deployment. The October 15 refresh ports the current episode pipeline, materiality/Review flow, single-pass note writer, and synthetic regression coverage for republished-episode detection, provider-outage deferral, bounded review-audio lifecycle, durable review feedback/replay, PodcastOps status projection, and checksum-bound Mac Vault receipts.
 
-The **12 October public reliability update** includes a bounded correction for tiny word-timestamp backsteps at ASR chunk seams and bounded retries when concurrent Third-ASR prefetch cards contend for the same AI budget ledger. Larger timestamp regressions and exhausted budget retries still fail closed. Synthetic tests cover both behaviors. Provider-outage episode deferral, review-audio retention, and the authenticated PodcastOps backend are **not** included in this update.
+The private AI-assisted *software development* workspace was moved on 14 October to a separate private project (TASK-147). It is **not** a component of this podcast product and is not bundled here. Runtime AI-assisted transcript decisions remain bounded by the compiler, budgets and explicit Human Review.
 
-The main pipeline, materiality-first Human Review, single-pass knowledge writer, and synthetic demos described below are represented in this curated public code. For a precise included-versus-upstream breakdown, see [Public extraction scope and upstream status](docs/UPSTREAM_STATUS.md).
+The public branch also removes 69 obsolete legacy summary/benchmark files. Unlike the earlier October 7/12 extraction, current production modules are included, with sanitization. Private runner tooling, production configuration, account identities, real transcripts and evaluation evidence remain excluded. See [exact scope and exclusions](docs/UPSTREAM_STATUS.md).
 
 ## Domain focus
 
@@ -83,10 +88,10 @@ The important boundary is authority: model output can assist inside explicit con
 
 ## Pipeline at a glance
 
-1. Discover the latest configured RSS episode and resume older incomplete work.
+1. Discover the latest configured RSS episode and resume older incomplete work, preserving durable state and duplicate decisions.
 2. Download episode audio to ephemeral worker storage.
-3. Generate the logical "Whisper" source with OpenRouter `qwen/qwen3-asr-1.7b` in bounded chunks, with producer provenance, budget reservations, segment/word timestamp normalization and bounded rate-limit backoff.
-4. Acquire an independent Apple transcript when available.
+3. Generate the logical "Whisper" source with OpenRouter `qwen/qwen3-asr-1.7b` in bounded chunks, with provenance, budget reservations, seam-safe timestamp validation and bounded rate-limit backoff. Transient provider outages defer only the affected episode.
+4. Detect republished audio/transcript evidence before unnecessary Apple or downstream processing; acquire an independent Apple transcript when available.
 5. Store both source artifacts separately.
 6. Align and compare the sources.
 7. Apply deterministic equivalence/corroboration rules.
@@ -100,17 +105,17 @@ The important boundary is authority: model output can assist inside explicit con
 
 ## PodcastOps status dashboard — synthetic demo
 
-The private production system includes a read-only episode-status dashboard. This public repository now includes **the same dashboard frontend** with a loopback-only synthetic server, using 12 fictional episodes instead of Google Cloud records. The demo illustrates review queues, prepared summaries, local Mac Vault delivery confirmation, pending sync and unavailable evidence.
+The source extraction includes the read-only episode-status projection and dashboard frontend. The published demo uses a **separate loopback-only synthetic server**, with 12 fictional episodes rather than private Google Cloud records. The demo illustrates review queues, prepared summaries, local Mac Vault delivery confirmation, pending sync and unavailable evidence.
 
 ![Synthetic PodcastOps episode and Mac Vault Sync dashboard](assets/demo-podcastops-dashboard.png)
 
 *Screenshot of the local synthetic demo: 12 fictional episodes, with review, summary and Mac Vault delivery states. “Mac copy confirmed” verifies a reported local copy at that time, not remote iCloud upload.*
 
-Run `python scripts/demo_ops_dashboard.py` and open `http://127.0.0.1:8767/ops`. It does not provide the private authenticated production backend or read production data. See the [PodcastOps synthetic demo guide](docs/DEMO_PODCASTOPS.md) for screenshot and safety instructions.
+Run `python scripts/demo_ops_dashboard.py` and open `http://127.0.0.1:8767/ops`. The demo does not authenticate to, access or deploy the private production backend or read production data. See the [PodcastOps synthetic demo guide](docs/DEMO_PODCASTOPS.md) for screenshot and safety instructions.
 
 ## Human Review
 
-The same Flask review application can run locally or as a separate service. Review state is durable and generation-aware; recompile requests carry correlation identifiers so a later worker execution can continue the exact episode/review generation.
+The same Flask review application can run locally or as a separate service. Review state is durable and generation-aware; bounded replay preserves compatible human decisions across recompilation, and feedback notes are saved independently. Recompile requests carry correlation identifiers so a later worker execution can continue the intended episode/review generation.
 
 ![Human Review demo](assets/demo-human-review.gif)
 
@@ -176,11 +181,11 @@ examples/launchd/      sanitized macOS launch-agent examples
 
 The checked-in podcast configuration is intentionally disabled and synthetic. Start from `config/podcasts.example.json` and `.env.example`.
 
-The committed OpenRouter preset lock is also an example identity, not a production preset. The current knowledge-generation architecture requires a verified `PODCAST_KNOWLEDGE_WRITER_PRESET` for the single-pass `knowledge-note-v3` writer. Optional review tuning is controlled through the Third-ASR/materiality environment switches documented in `.env.example`.
+The committed OpenRouter preset lock is an example identity, not a production preset. The current knowledge-generation architecture requires a verified `PODCAST_KNOWLEDGE_WRITER_PRESET` for the single-pass `knowledge-note-v3` writer. Optional review tuning is controlled through the Third-ASR/materiality environment switches documented in `.env.example`.
 
 ## Public-repository safety
 
-This repository intentionally contains no production API keys, OAuth secrets, Slack secrets/webhooks, Apple bearer tokens, production GCP project/bucket identifiers, personal account allowlists, private filesystem paths, real deployment feed configuration or real transcript-derived evaluation corpus.
+Production API keys, OAuth secrets, Slack secrets/webhooks, Apple tokens, resource identifiers, personal allowlists, local paths, feed configuration and real transcript/evaluation data are deliberately excluded. Public CI runs `scripts/check_public_release.py` across tracked files to reject known credential formats, production identities and private workflow/evidence paths. The scanner is a backstop, not a substitute for human review.
 
 ## Future direction
 
@@ -190,15 +195,15 @@ The goal would not be to replace the grounded note pipeline, but to use it as th
 
 ## Development approach
 
-This project was developed with substantial **AI-assisted software development**. AI tools were used throughout architecture exploration, implementation, test generation and repair, code review, and iterative design. The domain goals, workflow requirements, acceptance criteria, evaluation, integration, and final decisions were shaped iteratively through that human-AI process; this repository is not presented as if every implementation or design idea was independently authored from scratch.
+This project was developed with substantial **AI-assisted software development**, but the separate Cline/Host/Semantic-Auditor engineering workspace was extracted into its own private repository and is not shipped in this portfolio. AI tools were used throughout architecture exploration, implementation, test generation and repair, code review, and iterative design. The domain goals, workflow requirements, acceptance criteria, evaluation, integration, and final decisions were shaped iteratively through that human-AI process; this repository is not presented as if every implementation or design idea was independently authored from scratch.
 
 ## Project status
 
-**Active work in progress.** The private production project is working, while this public repository is a cleaned portfolio extraction of that system.
+**Active public extraction.** The private production project operates separately. The public repository is a sanitized, testable portfolio version of its podcast product code as of 15 October 2026, not a production deployment.
 
 Recent work moved the review path from a flat card list toward a materiality-first workflow: Third-ASR evidence can be prefetched before review, harmless differences are separated from truly material conflicts, quick choices are staged before one final save, and each session records bounded audit evidence for later tuning. Protected cases such as differing values, negations, citations and domain-sensitive semantics remain fail-closed.
 
-The private project continues to refine transcript evidence, reviewer workload and note quality. Semantic search and RAG over source-grounded notes remain a **future direction**, not a feature shipped in this public snapshot.
+The private project continues to refine transcript evidence, reviewer workload and note quality. Public `Portfolio CI` separates **Publication safety**, **Dependency** and **Application** checkpoints; private self-hosted runners and exact-main provenance tooling are intentionally not copied. Semantic search and RAG over source-grounded notes remain a **future direction**, not a feature shipped in this public snapshot.
 
 
 ## License

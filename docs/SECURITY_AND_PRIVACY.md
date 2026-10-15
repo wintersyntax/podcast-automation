@@ -20,3 +20,18 @@ The Slack acknowledgement service verifies the signed raw request before parsing
 ## Updating this public extraction
 
 The private source tree is not a safe publishable archive. Newer modules, tests, runtime configuration and production evidence require **individual review and sanitization** before publication. A private CI pass does not certify public disclosure safety, and the public workflow tests only the code committed here. Demo media must use invented episodes and examples; production review screenshots, real transcript spans and unredacted operations receipts are intentionally out of scope.
+
+## October 2026 extraction safeguards
+
+The public snapshot was refreshed against private source commit
+`d8678469077dd4b644fcc950562e10fd11ee730e`.
+Defaults for cloud resource identity, review URL and allowed review email
+were replaced with examples. The private production configuration and
+CI runner tooling were not copied. The public extraction preserves only
+fictional fixtures, demonstrations and hand-reviewed code/tests.
+
+`python scripts/check_public_release.py` scans tracked files for known
+credential/token formats, real deployment identifiers, Mac user paths,
+personal email domains and forbidden private-development/evidence paths.
+It is a fail-closed **backstop**, not a guarantee that every kind of secret
+has been detected. Review every future upstream patch for disclosure risk.

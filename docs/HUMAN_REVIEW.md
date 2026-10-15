@@ -29,6 +29,6 @@ Third-ASR evidence can be prefetched before the review notification and refreshe
 
 The same application can run locally for development or as a separate Cloud Run service.
 
-## Later upstream improvements
+## Replay, feedback, and audio lifecycle
 
-The private project subsequently hardened review generation fingerprints to preserve legacy decisions, added tightly checked full-span decision replay, and allowed feedback notes to be saved independently after card review. Those production milestones postdate this public source snapshot and are **not presented as included code features here**. See [Public extraction scope and upstream status](UPSTREAM_STATUS.md) before describing or porting them.
+The current source includes generation-aware queue fingerprints, checked replay of compatible full-span decisions after recompilation, independently saved reviewer notes, and audio cleanup after completed episodes. Review clips are sourced from the exact audio producer when available; the audio evidence and review state are not implicit permission to change canonical text. See [Public extraction scope and upstream status](UPSTREAM_STATUS.md) for what remains private.

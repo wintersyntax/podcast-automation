@@ -13,6 +13,6 @@ A completed canonical transcript is transformed into a durable knowledge note th
 
 The model never authors arbitrary frontmatter, controls publication state, or silently repairs uncertain transcript wording. Source-truth decisions remain upstream in the compiler and Human Review.
 
-## Compatibility code
+## Current module boundary
 
-The curated codebase still contains older summary, summary-review and metadata modules plus their regression tests because the private production project has not yet physically removed that compatibility surface. They are **not part of the current production deployment or the portfolio architecture shown in this repository**. New knowledge notes use the single-pass writer described above.
+The obsolete multi-pass summary, summary-review, metadata and notes-v2 paths are not shipped. The active public implementation consists of `podcast_engine/knowledge/orchestration.py`, `notes_v3/` (including quantity handling), `episode_inputs.py`, `client.py`, `frontmatter.py`, and the separately versioned writer prompt. The published knowledge-note demo uses fully invented transcript content and the current deterministic renderer.
