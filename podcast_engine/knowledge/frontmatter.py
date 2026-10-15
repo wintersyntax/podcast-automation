@@ -102,6 +102,17 @@ def build_frontmatter(episode: dict, metadata: dict, created_at: str) -> dict:
     return ordered
 
 
+def _title_heading(episode: dict, body: str) -> str:
+    """The episode title as the note's H1, so a Markdown preview (which hides
+    the frontmatter) opens with a real title. A body that already starts
+    with its own H1 keeps it."""
+
+    title = _optional_text(episode.get("title"))
+    if not title or body.startswith("# "):
+        return ""
+    return f"# {' '.join(title.split())}\n\n"
+
+
 def render(episode: dict, metadata: dict, created_at: str, body: str) -> str:
     yaml_body = yaml.safe_dump(
         build_frontmatter(episode, metadata, created_at),
@@ -109,4 +120,5 @@ def render(episode: dict, metadata: dict, created_at: str, body: str) -> str:
         sort_keys=False,
         default_flow_style=False,
     )
-    return f"---\n{yaml_body}---\n\n{body.lstrip()}"
+    body = body.lstrip()
+    return f"---\n{yaml_body}---\n\n{_title_heading(episode, body)}{body}"

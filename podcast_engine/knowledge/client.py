@@ -137,11 +137,12 @@ def post_openrouter(
     """
 
     # Imported locally, not at module level: podcast_engine.ai_budget pulls
-    # in google-cloud-storage transitively, and podcast_engine.knowledge.
-    # summary (which imports this module's post_openrouter) must stay
+    # in google-cloud-storage transitively, and podcast_engine.knowledge
+    # notes_v3.writer (which imports this module's post_openrouter) must stay
     # importable without that dependency. See
     # test_knowledge_import_boundaries.py.
     from ..ai_budget import (
+        http_status_proves_no_generation,
         mark_budget_attempt_uncertain,
         reserve_budget_batch,
         settle_budget_attempt,
@@ -232,18 +233,26 @@ def post_openrouter(
         except (requests.Timeout, requests.ConnectionError, requests.HTTPError) as error:
             last_error = error
 
-            mark_budget_attempt_uncertain(
-                episode_key,
-                source_fingerprint,
-                attempt_id,
-                reason=_budget_uncertain_reason(error),
-            )
-
             status = (
                 error.response.status_code
                 if isinstance(error, requests.HTTPError) and error.response is not None
                 else None
             )
+            if http_status_proves_no_generation(status):
+                # TASK-128: rejected before generation, so nothing was charged.
+                settle_budget_attempt(
+                    episode_key,
+                    source_fingerprint,
+                    attempt_id,
+                    actual_usd=Decimal("0"),
+                )
+            else:
+                mark_budget_attempt_uncertain(
+                    episode_key,
+                    source_fingerprint,
+                    attempt_id,
+                    reason=_budget_uncertain_reason(error),
+                )
             retryable = (
                 isinstance(error, (requests.Timeout, requests.ConnectionError))
                 or status == 429

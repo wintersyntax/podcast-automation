@@ -67,7 +67,7 @@ STUDY_SCHEMA = _obj({
 
 def _without_item_bounds(schema: dict) -> dict:
     """Drop ``maxItems``: not every provider's strict mode accepts it, and
-    ``metadata.normalize_metadata`` already bounds these lists in Python."""
+    ``normalize_metadata`` below bounds these lists in Python."""
 
     result = copy.deepcopy(schema)
     result.pop("maxItems", None)
@@ -169,3 +169,64 @@ def validate_note(payload: Any) -> list[str]:
             if not bullet["anchor"].strip():
                 errors.append(f"{path}.anchor: empty")
     return errors
+
+
+def _clean_values(value, limit: int) -> list[str]:
+    """Trim and case-insensitively deduplicate model-provided labels only."""
+
+    if not isinstance(value, list):
+        return []
+    cleaned = []
+    seen = set()
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        normalized = item.strip()
+        key = normalized.casefold()
+        if not normalized or key in seen:
+            continue
+        seen.add(key)
+        cleaned.append(normalized)
+        if len(cleaned) == limit:
+            break
+    return cleaned
+
+
+def _clean_candidates(value) -> list[dict[str, str]]:
+    """Accept only the two structured, reviewable candidate proposals."""
+
+    if not isinstance(value, list):
+        return []
+    result = []
+    seen = set()
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        tag = item.get("tag")
+        category = item.get("category")
+        if not isinstance(tag, str) or not isinstance(category, str):
+            continue
+        tag = tag.strip()
+        if not tag or tag.casefold() in seen:
+            continue
+        seen.add(tag.casefold())
+        result.append({"tag": tag, "category": category})
+        if len(result) == 2:
+            break
+    return result
+
+
+def normalize_metadata(payload: dict) -> dict:
+    """Bound the note's topics, people and tag proposals for the tag
+    registry, keeping only these fields and never inferring new concepts."""
+
+    limits = {
+        key: METADATA_RESPONSE_SCHEMA["properties"][key]["maxItems"]
+        for key in ("topics", "people", "existing_tags")
+    }
+    return {
+        "topics": _clean_values(payload.get("topics"), limits["topics"]),
+        "people": _clean_values(payload.get("people"), limits["people"]),
+        "existing_tags": _clean_values(payload.get("existing_tags"), limits["existing_tags"]),
+        "new_tag_candidates": _clean_candidates(payload.get("new_tag_candidates")),
+    }

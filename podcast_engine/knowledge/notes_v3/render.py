@@ -4,11 +4,12 @@ Pure Python; the same checked note always renders to the same bytes. The
 body carries no frontmatter and no H1 -- ``frontmatter.render`` adds both
 concerns around it exactly as for earlier summary bodies.
 
-Evidence strength (user decision 2026-09-29, option A) is a meter plus a
-word at the start of every bullet that claims or recommends something::
+Where a claim comes from (user decision 2026-10-15, replacing the
+2026-09-29 ▰▱ meter) is an icon plus a word at the start of every bullet
+that claims or recommends something::
 
-    **▰▰▰ Study** — …    **▰▰▱ Coaches** — …
-    **▰▱▱ One person** — …    **▱▱▱ Opinion** — …
+    🔬 **Study** — …    🏋️ **Coaches** — …
+    👤 **One person** — …    💬 **Opinion** — …
 
 ``· unsure`` is appended inside the label when the speaker hedged.
 Descriptive bullets (basis ``none``) carry no label, and no legend is needed.
@@ -27,14 +28,22 @@ from .units import SAID_RE, UnitReport, to_si
 # quantity; v1 rendered "5/8 inch" as "5/~20 cm (said: 8 inch)".
 # v3 (2026-09-30): clock/split times ("2:55") bold as one value, "about ~"
 # keeps a single approximation marker, "calorie(s)" is treated as kcal.
-RENDER_VERSION = "note-render-v3"
+# v4 (2026-10-14): converted values of 100 or more keep whole-number
+# precision ("230 pounds" -> "~104 kg"; v3 rounded it to "~100 kg").
+# v5 (2026-10-15): evidence labels are an icon plus a word ("🔬 **Study**")
+# instead of the ▰▱ meter, and the final note opens with the episode title
+# as H1 (added by ``frontmatter.render``).
+# v6 (2026-10-15): the protocol block's Evidence line uses the same icon and
+# word; v5 concatenated the new (icon, word) tuple with a string and failed
+# on hedged protocols (and printed the raw tuple for unhedged ones).
+RENDER_VERSION = "note-render-v6"
 LEGACY_RENDER_VERSION = "note-render-v1"
 
 EVIDENCE_LABELS = {
-    "research": "▰▰▰ Study",
-    "coaching_experience": "▰▰▱ Coaches",
-    "personal_experience": "▰▱▱ One person",
-    "opinion": "▱▱▱ Opinion",
+    "research": ("🔬", "Study"),
+    "coaching_experience": ("🏋️", "Coaches"),
+    "personal_experience": ("👤", "One person"),
+    "opinion": ("💬", "Opinion"),
 }
 NOT_STATED = {"", "not stated", "not specified", "none", "n/a"}
 
@@ -49,7 +58,8 @@ def evidence_label(basis: str, hedged: bool) -> str:
     label = EVIDENCE_LABELS.get(basis)
     if label is None:
         return ""
-    return f"**{label}{' · unsure' if hedged else ''}** — "
+    icon, word = label
+    return f"{icon} **{word}{' · unsure' if hedged else ''}** — "
 
 
 def _bold_numbers(text: str) -> str:
@@ -95,9 +105,11 @@ def _protocol_block(protocol: dict, report: UnitReport) -> list[str]:
     def field(value: str) -> str:
         return format_text(value, report) if _stated(value) else "not specified"
 
-    evidence = EVIDENCE_LABELS.get(protocol["basis"])
-    if evidence and protocol["hedged"]:
-        evidence += " · unsure"
+    evidence = ""
+    label = EVIDENCE_LABELS.get(protocol["basis"])
+    if label is not None:
+        icon, word = label
+        evidence = f"{icon} {word}{' · unsure' if protocol['hedged'] else ''}"
     return [
         f"> **📋 Protocol: {protocol['name'].strip()}**",
         f"> **What:** {field(protocol['what'])}",
@@ -139,7 +151,8 @@ def render_body(note: dict, report: UnitReport | None = None) -> str:
     if note["numbers"]:
         lines += ["## Numbers & protocols", "", "| Topic | Value / protocol | Evidence |", "|---|---|---|"]
         for row in note["numbers"]:
-            label = EVIDENCE_LABELS.get(row["basis"], "")
+            icon, word = EVIDENCE_LABELS.get(row["basis"], ("", ""))
+            label = f"{icon} {word}".strip()
             topic = row["topic"].replace("|", "/").strip()
             value = to_si(row["value"], report).replace("|", "/").strip()
             lines.append(f"| {topic} | {value} | {label} |")

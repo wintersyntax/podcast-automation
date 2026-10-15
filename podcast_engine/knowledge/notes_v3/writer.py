@@ -39,7 +39,12 @@ from ..models import (
     NOTE_WRITER_PRESET_ENV,
     NOTE_WRITER_TIMEOUT_SECONDS,
 )
-from ..summary import _WORST_CASE_EPISODE, episode_context, worst_case_transcript_text
+from ..episode_inputs import (
+    WORST_CASE_EPISODE,
+    episode_context,
+    worst_case_tag_vocabulary,
+    worst_case_transcript_text,
+)
 from . import checks, render, schema
 from .units import UnitReport
 
@@ -189,15 +194,10 @@ def worst_case_openrouter_payload(provenance: PresetProvenance) -> dict:
     a generous tag vocabulary, for downstream-reserve planning only. Never
     sent to a provider."""
 
-    # Imported locally: metadata imports podcast_engine.ai_budget, which
-    # pulls in google-cloud-storage, and this module must stay importable
-    # without it.
-    from ..metadata import _worst_case_tag_vocabulary
-
     return openrouter_payload(
-        _WORST_CASE_EPISODE,
+        WORST_CASE_EPISODE,
         worst_case_transcript_text(),
-        _worst_case_tag_vocabulary(),
+        worst_case_tag_vocabulary(),
         provenance,
         description="w" * MAX_DESCRIPTION_CHARS,
     )

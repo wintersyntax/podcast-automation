@@ -6,9 +6,10 @@ spoken inside double braces -- ``{{5 lb}}``, ``{{200-230 lb}}``,
 ``~2.3 kg (said: 5 lb)``. Imperial quantities the writer forgot to brace are
 converted too, and every such repair is reported so it stays visible.
 
-Conversion factors and 2-significant-figure rounding come from
-``notes_v2.quantities.convert_quantity``; volume units it does not know are
-handled here with the same rounding.
+Conversion factors and rounding come from
+``notes_v3.quantities.convert_quantity``: 2 significant figures, but whole
+numbers from 100 upwards (230 lb -> ~104 kg, not ~100 kg). Volume units it
+does not know are handled here with the same rounding.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ import re
 from dataclasses import dataclass, field
 from decimal import Decimal, ROUND_HALF_UP
 
-from ..notes_v2.quantities import convert_quantity
+from .quantities import convert_quantity, round_for_display
 
 UNIT_ALIASES = {
     "kilo": "kg",
@@ -106,10 +107,7 @@ def _spoken(text: str) -> str:
 
 
 def _round2(value: Decimal) -> Decimal:
-    if value == 0:
-        return Decimal(0)
-    quantum = Decimal(1).scaleb(abs(value).adjusted() - 1)
-    return (value / quantum).to_integral_value(rounding=ROUND_HALF_UP) * quantum
+    return round_for_display(value, whole_above_hundred=True)
 
 
 def _convert(value: str, value_high: str | None, unit: str, report: UnitReport, original: str) -> str:
@@ -125,7 +123,7 @@ def _convert(value: str, value_high: str | None, unit: str, report: UnitReport, 
         return f"{converted} {si_unit} (said: {spoken})"
     if key.lower() in _PASS_THROUGH:
         return f"{_spoken(value)}–{_spoken(value_high)} {key}" if value_high else f"{_spoken(value)} {key}"
-    result = convert_quantity(low_value, high_value, key)
+    result = convert_quantity(low_value, high_value, key, whole_above_hundred=True)
     if result.unknown_unit or result.converted_value is None:
         report.unknown_units.append(original)
         return spoken
