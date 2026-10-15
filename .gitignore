@@ -1,0 +1,77 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Environment
+.env
+venv/
+.venv/
+
+# OS
+.DS_Store
+
+# Runtime data
+/var/*
+!/var/.gitkeep
+!/var/downloads/
+/var/downloads/*
+!/var/downloads/.gitkeep
+!/var/transcripts/
+/var/transcripts/*
+!/var/transcripts/.gitkeep
+!/var/summaries/
+/var/summaries/*
+!/var/summaries/.gitkeep
+!/var/exports/
+/var/exports/*
+!/var/exports/.gitkeep
+!/var/benchmarks/
+/var/benchmarks/*
+!/var/benchmarks/.gitkeep
+!/var/compiler/
+/var/compiler/*
+!/var/compiler/.gitkeep
+!/var/compiler-reports/
+/var/compiler-reports/*
+!/var/compiler-reports/.gitkeep
+!/var/test_output/
+/var/test_output/*
+!/var/test_output/.gitkeep
+*.mp3
+
+# macOS agent generated/runtime files
+macos_agent/bin/FetchTranscript
+
+# IDE
+.vscode/
+
+# Cline local scratch (for file-backed PR bodies; never repository state)
+/.cline-tmp/
+
+/transcripts/
+/summaries/
+/exports/
+
+# temporary cloud registry exports
+images.json
+images_backup_*
+
+# Test outputs
+test_output_*
+
+# Generated compiler reports
+compiler-report.*
+
+# Versioned transcript-compiler fixtures
+!tests/fixtures/transcript_compiler/compiler-report.json
+!tests/fixtures/transcript_compiler/compiler-report.md
+
+# Local Git worktrees
+/.worktrees/
+
+# Claude/Cowork session output drops
+/Claude outputs/
+
+# TASK-091 experimental ClineCore host dependencies (local only)
+/tools/cline-recoverable-host/node_modules/
+.local/
