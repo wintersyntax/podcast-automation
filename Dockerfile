@@ -1,0 +1,22 @@
+# syntax=docker/dockerfile:1.7
+FROM python:3.12-slim@sha256:09f7da3bc104798d0afb40bc08d23ab2da20a76130cec1f2ef170848f5d85217
+
+WORKDIR /app
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+
+ARG PIP_VERSION=26.2.1
+
+RUN python -m pip install --no-cache-dir "pip==${PIP_VERSION}" \
+    && python -m pip install --no-cache-dir --require-hashes -r requirements.txt \
+    && python -m pip check
+
+COPY . .
+
+CMD ["python", "worker.py"]
