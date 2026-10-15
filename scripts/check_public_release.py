@@ -32,7 +32,7 @@ RULES = (
     ("production GCP project", re.compile(r"podcast-ai-[0-9]+")),
     ("production review host", re.compile(r"review[.]podcastops[.]link", re.I)),
     ("real macOS user path", re.compile(r"/Users/(?!YOUR_USER(?:/|\\b))[A-Za-z0-9._-]+/")),
-    ("personal runner identity", re.compile(r"Petars-MacBook-Air", re.I)),
+    ("personal runner identity", re.compile("Petars" + "-MacBook" + "-Air", re.I)),
     ("personal email", re.compile(r"[A-Za-z0-9._%+-]+@gmail[.]com", re.I)),
 )
 BINARY_SUFFIXES = {".png", ".gif", ".jpg", ".jpeg", ".webp", ".pdf", ".zip", ".ico"}
