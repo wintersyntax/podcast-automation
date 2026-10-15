@@ -22,6 +22,12 @@ flowchart LR
     GCS --> Sync[Optional local vault sync]
 ```
 
+## Resilience and operations
+
+The current worker can identify republished episodes before repeated Apple acquisition and compilation. A transient ASR provider outage defers the affected episode, persists its first deferral, and resumes other episodes; long deferrals escalate after the configured interval. Human Review decisions can be replayed only when the new queue proves them compatible. Read-only PodcastOps projections and checksum-bound Mac Vault receipts provide delivery observations without silently treating local copies as iCloud upload proof.
+
+The private AI-assisted *development tooling* was extracted into another private project and is intentionally absent from this public podcast product. AI-assisted transcript adjudication inside the podcast runtime remains governed by explicit human and deterministic boundaries.
+
 ## Authority boundaries
 
 - **Source transcripts** are evidence, not interchangeable guesses.

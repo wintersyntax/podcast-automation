@@ -1,6 +1,6 @@
 # Synthetic PodcastOps dashboard demo
 
-This is an **offline, read-only preview** of the private-production PodcastOps episode-status interface. The demo ships the real frontend template (`podcast_engine/ops_dashboard_page.py`) against an in-memory synthetic status API, **not** the private Google Cloud status backend or production episode data.
+This is an **offline, read-only preview** of the private-production PodcastOps episode-status interface. The demo ships the real frontend template (`podcast_engine/ops_dashboard_page.py`) against an in-memory synthetic status API, **not** the authenticated private deployment, production account configuration, or actual episode data. The curated public repository now contains the separate read-only status-projection source too, but this demo does not invoke it.
 
 ## Start the local server
 

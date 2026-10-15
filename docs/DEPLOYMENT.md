@@ -26,3 +26,7 @@ At a minimum, a real deployment needs:
 The worker-side Third-ASR and materiality stages are optional and fail closed: missing credentials or verified preset evidence must not become an implicit transcript decision.
 
 Do not treat the example values in this portfolio repository as production defaults.
+
+## Public source versus private operations
+
+The public GitHub Actions workflow validates publication safety, reproducible hash-locked dependencies and the synthetic/application test suite. Its checks are not the private Worker repository's self-hosted PR/Main acceptance machinery. No production IAM bindings, CI-runner identities or private deployment secrets are included. The shipped `ops_dashboard.py` projection code is source only; the loopback synthetic demo never fetches cloud data.
