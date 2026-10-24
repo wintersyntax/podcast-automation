@@ -192,7 +192,10 @@ class PipelineTests(FindOriginalTests):
     def test_no_match_continues_to_apple_acquisition(self):
         self.texts["episodes/orig/sources/apple/transcript.txt"] = asr_variant(conversation(30), 31)
         self.texts["episodes/orig/sources/whisper/transcript.txt"] = asr_variant(conversation(30), 32)
+        # Late-transcript notifications have separate coverage. Keep this
+        # duplicate-detection test independent of the current calendar date.
         with (
+            patch("podcast_engine.pipeline._apple_transcript_late_notification_due", return_value=None),
             patch("podcast_engine.pipeline.load_episodes", return_value=[self.original, self.bonus]),
             patch("podcast_engine.pipeline.download_gcs_bytes",
                   side_effect=lambda path: self.texts[path].encode("utf-8")),
