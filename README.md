@@ -5,7 +5,15 @@
 ![License: MIT](https://img.shields.io/badge/License-MIT-2ea44f)
 ![Status: Active development](https://img.shields.io/badge/Status-Active%20development-f59e0b)
 
-A resumable automation pipeline for evidence-heavy **exercise science, training and nutrition podcasts**. It combines independent transcript sources, preserves disagreements as evidence, routes ambiguous cases to human review, and produces durable structured knowledge notes.
+**The system turns long podcast episodes into structured, source-linked notes, checking conflicting transcript information and asking for human review when it cannot safely resolve disagreements.**
+
+Built as a resumable Python pipeline for **exercise science, training and nutrition podcasts**.
+
+### Example output
+
+![Synthetic podcast knowledge note](assets/demo-knowledge-note.png)
+
+*Example of the structured knowledge-note output using fictional podcast content. This synthetic demo does not use a real transcript or independently verify the research discussed.*
 
 This is a public portfolio edition of a larger production system. All published demos use synthetic data.
 
