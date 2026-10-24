@@ -1,0 +1,24 @@
+.env
+venv/
+.git/
+__pycache__/
+
+var/
+tests/
+docs/
+scripts/*
+!scripts/download_whisper_model.py
+data/
+macos_agent/
+
+*.mp3
+*.txt
+!requirements.txt
+!requirements.review.txt
+*.md
+# Runtime prompts are read by the worker (TASK-118 note writer).
+!prompts/knowledge/*.md
+episodes.json
+.DS_Store
+.pytest_cache/
+requirements*.in

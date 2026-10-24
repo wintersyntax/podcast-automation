@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "eligibility_policy": "compiler-corpus-v1",
+  "required_observers": {
+    "episode_local_memory": {
+      "mode": "shadow",
+      "decision_effect": "none"
+    },
+    "alignment_diagnostics": {
+      "mode": "shadow",
+      "authoritative": false,
+      "decision_effect": "none",
+      "resolver_visibility": "none",
+      "review_routing_effect": "none"
+    }
+  },
+  "thresholds": [
+    {
+      "count": 25,
+      "status": "pending",
+      "accepted_at_count": null,
+      "accepted_commit": null,
+      "evidence_ref": null
+    },
+    {
+      "count": 50,
+      "status": "pending",
+      "accepted_at_count": null,
+      "accepted_commit": null,
+      "evidence_ref": null
+    },
+    {
+      "count": 100,
+      "status": "pending",
+      "accepted_at_count": null,
+      "accepted_commit": null,
+      "evidence_ref": null
+    }
+  ]
+}
