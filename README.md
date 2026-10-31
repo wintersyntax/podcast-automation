@@ -15,8 +15,6 @@ Built as a resumable Python pipeline for **exercise science, training and nutrit
 
 *Example of the structured knowledge-note output using fictional podcast content. This synthetic demo does not use a real transcript or independently verify the research discussed.*
 
-This is a public portfolio edition of a larger production system. All published demos use synthetic data.
-
 ## Engineering highlights
 
 - **Resumable processing:** RSS discovery, duplicate detection, persistent episode state and per-episode deferral during provider outages.
@@ -28,7 +26,7 @@ This is a public portfolio edition of a larger production system. All published 
 
 ## About this edition
 
-This repository contains a **privacy-safe public edition** of a larger production system. The source is real product code; the demos, example feeds and knowledge-note content are fictional. Production credentials, account-specific configuration and real transcripts are not included.
+This is a **curated public edition** of a larger production system. The source is real product code; the demos, example feeds and knowledge-note content are fictional. Production credentials, account-specific configuration and real transcripts are excluded.
 
 For a concise overview of progress, see the [development changelog](CHANGELOG.md).
 
@@ -60,7 +58,8 @@ flowchart LR
     Review -->|decision + recompile| Worker
 
     Compiler -->|compiled| Writer["Single-pass<br/>knowledge-note-v3 writer"]
-    Writer --> Checks["Python checks<br/>anchors · structure · SI · tags"]
+    Writer --> Coverage["Checked note + optional coverage fill<br/>transcript anchors · episode budget"]
+    Coverage --> Checks["Python rendering<br/>SI · tags · frontmatter"]
     Checks --> Note[Structured Markdown note]
     Note --> GCS
     GCS --> Sync[Optional local vault sync]
@@ -74,7 +73,7 @@ The important boundary is authority: model output can assist inside explicit con
 2. Transcribe audio and acquire an independent Apple transcript when available.
 3. Align and reconcile sources conservatively; route material disagreements to Human Review.
 4. Preserve human decisions, recompile and keep the source/provenance trail.
-5. Generate a single-pass, transcript-grounded knowledge note; validate and render it in Python.
+5. Generate and check a grounded knowledge note, optionally fill detected coverage gaps, then render it in Python.
 6. Expose read-only status and optional vault-copy receipts.
 
 A transient transcription outage can defer one episode without blocking the others. More detail: [Architecture](docs/ARCHITECTURE.md).
@@ -143,7 +142,7 @@ Local synthetic demos: `python scripts/demo_ops_dashboard.py` (port 8767), `pyth
 
 The checked-in podcast configuration is intentionally disabled and synthetic. Start from `config/podcasts.example.json` and `.env.example`.
 
-The committed OpenRouter preset lock is an example identity, not a production preset. The current knowledge-generation architecture requires a verified `PODCAST_KNOWLEDGE_WRITER_PRESET` for the single-pass `knowledge-note-v3` writer. Optional review tuning is controlled through the Third-ASR/materiality environment switches documented in `.env.example`.
+The committed OpenRouter preset lock is an example identity, not a production preset. Set a verified `PODCAST_KNOWLEDGE_WRITER_PRESET` for the single-pass writer; leave `PODCAST_KNOWLEDGE_FILL_PRESET` blank to keep coverage fill disabled. When enabled, the fill checks for missing exercise advice and numbers under the episode budget. Third-ASR and materiality review switches are documented in `.env.example`.
 
 ## Public-repository safety
 
