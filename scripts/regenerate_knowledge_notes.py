@@ -33,6 +33,10 @@ if str(REPOSITORY_ROOT) not in sys.path:
 
 WRITER_RESERVATION_USD = Decimal("0.75")
 EXPECTED_WRITER_USD = Decimal("0.35")
+# TASK-119 coverage fill on a stored note (full input, 2026-10-15 comparison:
+# USD 0.065-0.097 per episode).
+FILL_RESERVATION_USD = Decimal("0.30")
+EXPECTED_FILL_USD = Decimal("0.085")
 READY_STATES = frozenset({"ready", "completed"})
 
 
@@ -45,11 +49,14 @@ def plan(
     writer_policy: str,
     render_versions: dict | None = None,
     render_version: str | None = None,
+    fill_pending: dict | None = None,
 ) -> list[dict]:
     """Pure: one row per ready episode with its regeneration status.
 
     A writer note rendered by an older renderer only needs a free re-render
     from the stored checked note (``needs_rerender``), never a model call.
+    A current writer note without a current coverage fill (TASK-119) needs
+    only the paid fill call (``needs_fill``), which also re-renders it.
     """
 
     rows = []
@@ -63,6 +70,7 @@ def plan(
         committed = ledger_committed.get(key, Decimal("0"))
         headroom = cap - committed
         policy = manifest_policy.get(key)
+        needs_fill = policy == writer_policy and bool((fill_pending or {}).get(key))
         rows.append({
             "episode_key": key,
             "podcast": episode.get("podcast"),
@@ -70,8 +78,10 @@ def plan(
             "published": episode.get("published"),
             "current_policy": policy,
             "needs_regeneration": policy != writer_policy,
+            "needs_fill": needs_fill,
             "needs_rerender": (
                 policy == writer_policy
+                and not needs_fill
                 and render_version is not None
                 and (render_versions or {}).get(key) != render_version
             ),
@@ -88,11 +98,13 @@ def _load_state():
     from podcast_engine.episode_contract import paths_for
     from podcast_engine.episode_generation import source_generation_fingerprint_from_episode
     from podcast_engine.knowledge.models import NOTE_WRITER_POLICY_VERSION
+    from podcast_engine.knowledge.notes_v3 import fill_stage
     from podcast_engine.storage import get_bucket, load_episodes
 
     bucket = get_bucket()
     episodes = load_episodes()
-    manifest_policy, ledger_committed, render_versions = {}, {}, {}
+    manifest_policy, ledger_committed, render_versions, fill_pending = {}, {}, {}, {}
+    fill_enabled = fill_stage.note_fill_preset() is not None
     for episode in episodes:
         key = episode.get("episode_key")
         if not key or episode.get("status", {}).get("summary", {}).get("state") not in READY_STATES:
@@ -103,6 +115,7 @@ def _load_state():
                 manifest = json.loads(blob.download_as_text(encoding="utf-8"))
                 manifest_policy[key] = (manifest.get("summary") or {}).get("policy_version")
                 render_versions[key] = (manifest.get("summary") or {}).get("render_version") or "note-render-v1"
+                fill_pending[key] = fill_stage.fill_pending(manifest.get("note_fill"), enabled=fill_enabled)
             except (ValueError, UnicodeDecodeError):
                 manifest_policy[key] = "unreadable"
         try:
@@ -110,7 +123,10 @@ def _load_state():
             ledger_committed[key] = Decimal(episode_spend_summary(key, fingerprint)["committed_usd"])
         except Exception as error:  # noqa: BLE001 -- reported, not fatal, in a dry run
             print(f"warning: {key}: ledger unavailable ({type(error).__name__})", file=sys.stderr)
-    return episodes, manifest_policy, ledger_committed, render_versions, EPISODE_AI_HARD_CAP_USD, NOTE_WRITER_POLICY_VERSION
+    return (
+        episodes, manifest_policy, ledger_committed, render_versions, fill_pending,
+        EPISODE_AI_HARD_CAP_USD, NOTE_WRITER_POLICY_VERSION,
+    )
 
 
 def _regenerate(episode: dict) -> Decimal:
@@ -134,6 +150,26 @@ def _regenerate(episode: dict) -> Decimal:
     return Decimal(str(cost)) if cost is not None else WRITER_RESERVATION_USD
 
 
+def _fill(episode: dict) -> Decimal:
+    """Run the pending coverage fill through the production path; return its cost."""
+
+    from podcast_engine.episode_contract import paths_for
+    from podcast_engine.storage import get_bucket
+
+    _regenerate(episode)
+    manifest = json.loads(
+        get_bucket().blob(paths_for(episode["episode_key"])["summary_metadata"]).download_as_text(encoding="utf-8")
+    )
+    record = manifest.get("note_fill") or {}
+    if record.get("status") == "failed":
+        error = record.get("error") or {}
+        raise RuntimeError(f"coverage fill failed: {error.get('type')}: {error.get('message')}")
+    cost = (record.get("usage") or {}).get("cost")
+    if record.get("status") != "applied":
+        return Decimal("0")
+    return Decimal(str(cost)) if cost is not None else FILL_RESERVATION_USD
+
+
 def main(argv: list[str] | None = None) -> int:
     from dotenv import load_dotenv
 
@@ -147,18 +183,24 @@ def main(argv: list[str] | None = None) -> int:
 
     from podcast_engine.knowledge.notes_v3.render import RENDER_VERSION
 
-    episodes, manifest_policy, ledger_committed, render_versions, cap, writer_policy = _load_state()
+    episodes, manifest_policy, ledger_committed, render_versions, fill_pending, cap, writer_policy = _load_state()
     rows = plan(
         episodes, manifest_policy, ledger_committed, cap=cap, writer_policy=writer_policy,
-        render_versions=render_versions, render_version=RENDER_VERSION,
+        render_versions=render_versions, render_version=RENDER_VERSION, fill_pending=fill_pending,
     )
     if args.only:
         rows = [r for r in rows if r["episode_key"] in args.only or r["episode_key"][:8] in args.only]
     candidates = [r for r in rows if r["needs_regeneration"]]
     rerenders = [r for r in rows if r["needs_rerender"]]
+    fills = [r for r in rows if r["needs_fill"]]
 
     for row in rows:
-        mark = "REGENERATE" if row["needs_regeneration"] else ("RE-RENDER " if row["needs_rerender"] else "done      ")
+        mark = (
+            "REGENERATE" if row["needs_regeneration"]
+            else "FILL      " if row["needs_fill"]
+            else "RE-RENDER " if row["needs_rerender"]
+            else "done      "
+        )
         fits = "" if row["fits_one_attempt"] else "  ! headroom below one writer reservation"
         print(
             f"{mark} {row['episode_key'][:8]} {str(row['published'] or '')[:10]:10} "
@@ -169,7 +211,9 @@ def main(argv: list[str] | None = None) -> int:
         f"\n{len(candidates)} of {len(rows)} ready episodes need regeneration; "
         f"expected about USD {EXPECTED_WRITER_USD * len(candidates)} "
         f"(USD {EXPECTED_WRITER_USD} each, reservation {WRITER_RESERVATION_USD}). "
-        f"{len(rerenders)} writer note(s) only need a free re-render."
+        f"{len(rerenders)} writer note(s) only need a free re-render. "
+        f"{len(fills)} writer note(s) need the coverage fill; expected about "
+        f"USD {EXPECTED_FILL_USD * len(fills)} (reservation {FILL_RESERVATION_USD} each)."
     )
     waiting = [
         e for e in episodes
@@ -195,9 +239,23 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print(f"re-rendered {row['episode_key'][:8]} (no model call)", flush=True)
 
+    spent = Decimal("0")
+    for row in fills:
+        if spent + FILL_RESERVATION_USD > args.budget_usd:
+            print(f"stop: USD {spent} spent; the next fill could exceed --budget-usd {args.budget_usd}")
+            return 1
+        episode = next(e for e in episodes if e.get("episode_key") == row["episode_key"])
+        try:
+            cost = _fill(episode)
+        except Exception as error:  # noqa: BLE001 -- stop at the first failure
+            print(f"FAILED fill {row['episode_key'][:8]}: {type(error).__name__}: {str(error)[:300]}")
+            print(f"stopped after USD {spent}")
+            return 1
+        spent += cost
+        print(f"filled {row['episode_key'][:8]} for USD {cost} (run total USD {spent})", flush=True)
+
     if args.max_episodes:
         candidates = candidates[: args.max_episodes]
-    spent = Decimal("0")
     for row in candidates:
         if not row["fits_one_attempt"]:
             print(f"skip {row['episode_key'][:8]}: not enough ledger headroom", flush=True)

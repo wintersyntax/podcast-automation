@@ -131,7 +131,9 @@ main() {
     run_worker_summary_review_activation_gate
     run_worker_corpus_checkpoint_gate
   fi
+  # Pin the project: gcloud's active project may belong to another app.
   gcloud builds submit "$REPOSITORY_ROOT" \
+    --project="$PROJECT" \
     --config="$REPOSITORY_ROOT/$build_config" \
     --substitutions="_IMAGE=$image_ref"
 

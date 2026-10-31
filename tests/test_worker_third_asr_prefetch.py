@@ -153,6 +153,66 @@ class PrefetchRunTests(unittest.TestCase):
         self.assertEqual(len(calls), prefetch.PREFETCH_MAX_CONSECUTIVE_FAILURES)
         self.assertEqual(summary["stopped_reason"], "consecutive_failures")
 
+    def test_failed_cards_get_one_more_try_one_at_a_time(self):
+        # 2026-10-30: 14 of 106 cards failed in the parallel pass with no
+        # recorded reason; each transcribed fine when repeated later.
+        record = {"human_review": [_item(1), _item(2), _item(3)]}
+        calls, waits = [], []
+
+        def ensure(episode, item_id):
+            calls.append(item_id)
+            if item_id == 2 and calls.count(2) == 1:
+                raise RuntimeError("transient")
+            return {"text": "x"}
+
+        with patch.object(prefetch, "emit_event") as events:
+            summary = self._run(record, ensure=ensure, tiers={}, sleep=waits.append)
+        self.assertEqual(calls, [1, 2, 3, 2])
+        self.assertEqual(waits, [prefetch.PREFETCH_RETRY_PAUSE_SECONDS])
+        self.assertEqual((summary["status"], summary["fetched"], summary["failed"], summary["retried"]),
+                         ("completed", 3, 0, 1))
+        events.assert_called_once()
+        self.assertEqual(events.call_args.args[0], "third_asr_prefetch_card_failed")
+        self.assertEqual(events.call_args.kwargs["difference_id"], 2)
+        self.assertEqual(events.call_args.kwargs["attempt"], 1)
+        self.assertEqual(events.call_args.kwargs["error_type"], "RuntimeError")
+
+    def test_card_failing_twice_stays_failed_and_logs_type_and_status_only(self):
+        record = {"human_review": [_item(1), _item(2)]}
+
+        class Response:
+            status_code = 400
+
+        class ProviderError(RuntimeError):
+            response = Response()
+
+        def ensure(episode, item_id):
+            if item_id == 2:
+                raise ProviderError("secret-looking provider text")
+            return {"text": "x"}
+
+        with patch.object(prefetch, "emit_event") as events:
+            summary = self._run(record, ensure=ensure, tiers={})
+        self.assertEqual((summary["fetched"], summary["failed"], summary["retried"]), (1, 1, 1))
+        self.assertEqual([call.kwargs["attempt"] for call in events.call_args_list], [1, 2])
+        for call in events.call_args_list:
+            self.assertEqual(call.kwargs["http_status"], 400)
+            self.assertEqual(call.kwargs["error_type"], "ProviderError")
+            self.assertNotIn("secret-looking", repr(call))
+
+    def test_a_stopped_run_does_not_retry(self):
+        items = [_item(i) for i in range(1, 10)]
+        calls = []
+
+        def ensure(episode, item_id):
+            calls.append(item_id)
+            raise RuntimeError("provider down")
+
+        with patch.object(prefetch, "emit_event"):
+            summary = self._run({"human_review": items}, ensure=ensure, tiers={})
+        self.assertEqual(len(calls), prefetch.PREFETCH_MAX_CONSECUTIVE_FAILURES)
+        self.assertEqual(summary["retried"], 0)
+
     def test_unreadable_record_returns_no_tiers(self):
         def load(_key):
             raise FileNotFoundError("missing")

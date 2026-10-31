@@ -2,13 +2,16 @@
 
 One strong model call reads the whole canonical compiled transcript and
 returns a structured note (``knowledge-note-v3``). ``writer`` makes that
-single call; everything else in this package is deterministic Python with no
-model calls, no network and no GCS access:
+call and ``fill_stage`` makes the TASK-119 coverage-fill call; everything else
+in this package is deterministic Python with no model calls, no network and no
+GCS access:
 
 * ``schema``  -- the structured-output contract and its structural validation;
 * ``units``   -- Python-owned SI conversion of ``{{5 lb}}`` markup;
 * ``checks``  -- anchor verification, ad/sponsor and stub-bullet guards;
 * ``render``  -- the Markdown body with the evidence-strength scale.
+* ``coverage`` -- deterministic coverage detectors and the fill trigger (TASK-119);
+* ``fill``    -- the forced-decision fill request, response parsing and application (TASK-119).
 
 Design authority:
 ``docs/superpowers/specs/2026-09-29-single-pass-knowledge-note-design.md``.

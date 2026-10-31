@@ -236,7 +236,9 @@ class TranscriptCompilerTests(unittest.TestCase):
                         self.assertEqual(result.high_risk, 0)
                         self.assertEqual(result.medium_risk, 0)
 
-    def test_whisper_source_only_respects_existing_acoustic_confidence_thresholds(self):
+    def test_whisper_source_only_is_preserved_whatever_its_acoustic_confidence(self):
+        # TASK-012: acoustic confidence no longer labels or routes one-sided
+        # Whisper evidence; it is preserved like any ordinary source-only span.
         text = "start ordinary evidence end"
         def metadata(avg_logprob, no_speech_prob):
             return {"segments": [{
@@ -245,37 +247,20 @@ class TranscriptCompilerTests(unittest.TestCase):
                 "words": [{"word": word} for word in text.split()],
             }]}
 
-        confident = compile_transcripts(
-            "start end", text, primary="apple",
-            whisper_metadata=metadata(-0.2, 0.01),
-        )
-        confident_difference = next(item for item in confident.differences if item.source_only)
-        self.assertEqual(confident_difference.preservation_class, "preserved")
-        self.assertFalse(confident_difference.review_required)
-        self.assertIn("ordinary evidence", confident.compiled_transcript)
-
-        low_confidence = compile_transcripts(
-            "start end", text, primary="apple",
-            whisper_metadata=metadata(-1.2, 0.9),
-        )
-        low_difference = next(item for item in low_confidence.differences if item.source_only)
-        self.assertEqual(
-            low_difference.preservation_class,
-            "preserved_low_whisper_confidence",
-        )
-        self.assertFalse(low_difference.review_required)
-        self.assertIn("ordinary evidence", low_confidence.compiled_transcript)
-        self.assertIn("low_whisper_acoustic_confidence", low_difference.risk_reasons)
-        self.assertEqual(
-            low_confidence.source_only_summary["low_confidence_only_preserved"],
-            1,
-        )
-        self.assertEqual(
-            build_resolver_batch(low_confidence, "low-confidence-source-only")[
-                "batch"
-            ]["diff_items"],
-            [],
-        )
+        for avg_logprob, no_speech_prob in ((-0.2, 0.01), (-1.2, 0.9)):
+            with self.subTest(avg_logprob=avg_logprob, no_speech_prob=no_speech_prob):
+                result = compile_transcripts(
+                    "start end", text, primary="apple",
+                    whisper_metadata=metadata(avg_logprob, no_speech_prob),
+                )
+                difference = next(item for item in result.differences if item.source_only)
+                self.assertEqual(difference.preservation_class, "preserved")
+                self.assertEqual(difference.merge_action, "preserved_whisper_content")
+                self.assertEqual(difference.risk_reasons, [])
+                self.assertFalse(difference.review_required)
+                self.assertIn("ordinary evidence", result.compiled_transcript)
+                self.assertEqual(result.source_only_summary["preserved"], 1)
+                self.assertNotIn("low_confidence_only_preserved", result.source_only_summary)
 
     def test_numeric_and_unit_formatting_equivalence_is_proven_against_counterpart(self):
         for apple, whisper in (
@@ -522,24 +507,37 @@ class TranscriptCompilerTests(unittest.TestCase):
         result = compile_transcripts(apple, whisper, apple_has_timestamps=False)
         self.assertEqual(result.recommended_source, "apple")
 
-    def test_whisper_confidence_breaks_an_otherwise_ambiguous_tie(self):
-        metadata = {
-            "segments": [{
-                "avg_logprob": -0.2,
-                "no_speech_prob": 0.01,
-                "words": [{"word": word} for word in "The blue result works".split()],
-            }]
-        }
-        result = compile_transcripts(
-            "The red result works.",
-            "The blue result works.",
-            primary="apple",
-            whisper_metadata=metadata,
-        )
-        self.assertEqual(result.compiled_transcript, "The blue result works.")
-        self.assertTrue(
-            any(item.merge_action == "preferred_confident_whisper" for item in result.differences)
-        )
+    def test_low_risk_difference_keeps_the_verbatim_whisper_reading(self):
+        # TASK-012: no acoustic threshold decides this any more; with Whisper
+        # segment metadata a low-risk difference takes the Whisper reading even
+        # when its confidence looks poor, and plain-text input keeps the primary.
+        def metadata(avg_logprob, no_speech_prob):
+            return {
+                "segments": [{
+                    "avg_logprob": avg_logprob,
+                    "no_speech_prob": no_speech_prob,
+                    "words": [{"word": word} for word in "The blue result works".split()],
+                }]
+            }
+
+        for avg_logprob, no_speech_prob in ((-0.2, 0.01), (-1.5, 0.9)):
+            with self.subTest(avg_logprob=avg_logprob, no_speech_prob=no_speech_prob):
+                result = compile_transcripts(
+                    "The red result works.",
+                    "The blue result works.",
+                    primary="apple",
+                    whisper_metadata=metadata(avg_logprob, no_speech_prob),
+                )
+                self.assertEqual(result.compiled_transcript, "The blue result works.")
+                self.assertTrue(
+                    any(item.merge_action == "preferred_verbatim_whisper" for item in result.differences)
+                )
+                self.assertFalse(
+                    any(item.merge_action == "rejected_low_speech_whisper" for item in result.differences)
+                )
+
+        plain = compile_transcripts("The red result works.", "The blue result works.", primary="apple")
+        self.assertEqual(plain.compiled_transcript, "The red result works.")
 
     def test_measurement_unit_mismatch_is_high_risk(self):
         result = compile_transcripts(

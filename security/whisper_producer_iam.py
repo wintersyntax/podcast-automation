@@ -420,6 +420,10 @@ THIRD_ASR_CLAIM = _third_asr_claim()
 TAG_REGISTRY = _exact("knowledge/tags/registry-v1.json")
 ARTIFACT_INDEX = _exact("knowledge/artifacts/index-v1.json")
 KNOWLEDGE_AGENT_STATUS = _exact("knowledge/agents/macos-knowledge-sync-v1.json")
+# TASK-159: the Worker records compiler terminology candidates and reads them
+# for the terminology-retrieval shadow; this object was never granted, so every
+# run since the identity split logged a 403 and produced no retrieval telemetry.
+TERMINOLOGY_CANDIDATES = _exact("knowledge/terminology/candidates-v1.json")
 
 
 _WORKER_READER = (
@@ -440,6 +444,7 @@ _WORKER_READER = (
     BUDGET_IDENTITY_RECONCILIATION,
     THIRD_ASR_CLAIM,
     TAG_REGISTRY,
+    TERMINOLOGY_CANDIDATES,
 )
 _WORKER_WRITER = (
     EPISODES_INDEX,
@@ -460,6 +465,7 @@ _WORKER_WRITER = (
     BUDGET_IDENTITY_RECONCILIATION,
     THIRD_ASR_CLAIM,
     TAG_REGISTRY,
+    TERMINOLOGY_CANDIDATES,
 )
 _APPLE_INGEST_READER = (
     EPISODES_INDEX,
@@ -685,6 +691,7 @@ __all__ = [
     "PRINCIPALS",
     "READER_PERMISSIONS",
     "REVIEW_PRINCIPAL",
+    "TERMINOLOGY_CANDIDATES",
     "WORKER_PRINCIPAL",
     "WRITER_PERMISSIONS",
     "bindings_for",

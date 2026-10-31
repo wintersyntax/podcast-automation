@@ -15,6 +15,7 @@ from podcast_engine import (
     episode_generation,
     human_review,
 )
+from podcast_engine.terminology_candidates import CANDIDATE_REGISTRY_PATH
 from security.whisper_producer_iam import (
     ACCESS_BINDINGS,
     APPLE_INGEST_PRINCIPAL,
@@ -45,6 +46,7 @@ BUDGET_IDENTITY_RECONCILIATION_PATH = (
 )
 PREPARE_SESSION_PATH = f"{ROOT}/ai/prepare-sessions/{'e' * 64}/{'a' * 32}.json"
 THIRD_ASR_CLAIM_PATH = f"{ROOT}/ai/third-asr-claims/{'e' * 64}/184.json"
+TERMINOLOGY_CANDIDATES_PATH = CANDIDATE_REGISTRY_PATH  # TASK-159
 
 NON_GCS_PATH_FUNCTIONS = {
     "podcast_engine/apple_acquisition.py::_token_path",
@@ -191,6 +193,7 @@ WRITER_PATHS = {
         BUDGET_IDENTITY_RECONCILIATION_PATH,
         THIRD_ASR_CLAIM_PATH,
         "knowledge/tags/registry-v1.json",
+        TERMINOLOGY_CANDIDATES_PATH,
     ),
     APPLE_INGEST_PRINCIPAL: (
         "episodes.json",
@@ -227,6 +230,7 @@ READER_PATHS = {
         BUDGET_IDENTITY_RECONCILIATION_PATH,
         THIRD_ASR_CLAIM_PATH,
         "knowledge/tags/registry-v1.json",
+        TERMINOLOGY_CANDIDATES_PATH,
     ),
     APPLE_INGEST_PRINCIPAL: (
         "episodes.json",
@@ -301,7 +305,7 @@ class WhisperProducerIamPolicyTests(unittest.TestCase):
                     with self.subTest(principal=principal, permission=permission, object_name=object_name):
                         self.assertTrue(is_allowed(principal, permission, object_name))
                     positive_cases += 1
-        self.assertEqual(positive_cases, 56)
+        self.assertEqual(positive_cases, 58)  # TASK-159: Worker terminology candidates
 
     def test_all_audited_reader_paths_are_allowed(self):
         positive_cases = 0
@@ -310,7 +314,18 @@ class WhisperProducerIamPolicyTests(unittest.TestCase):
                 with self.subTest(principal=principal, object_name=object_name):
                     self.assertTrue(is_allowed(principal, "storage.objects.get", object_name))
                 positive_cases += 1
-        self.assertEqual(positive_cases, 35)
+        self.assertEqual(positive_cases, 36)  # TASK-159: Worker terminology candidates
+
+    def test_terminology_candidate_registry_is_worker_only(self):
+        # TASK-159: the Worker records compiler candidates and reads them for
+        # the retrieval shadow; every run logged a 403 without this grant.
+        for permission in ("storage.objects.get", "storage.objects.create", "storage.objects.delete"):
+            self.assertTrue(is_allowed(WORKER_PRINCIPAL, permission, CANDIDATE_REGISTRY_PATH))
+            self.assertFalse(is_allowed(REVIEW_PRINCIPAL, permission, CANDIDATE_REGISTRY_PATH))
+            self.assertFalse(is_allowed(APPLE_INGEST_PRINCIPAL, permission, CANDIDATE_REGISTRY_PATH))
+        for near_miss in ("knowledge/terminology/candidates-v2.json", "knowledge/terminology/other.json",
+                          "knowledge/terminology/candidates-v1.json.bak"):
+            self.assertFalse(is_allowed(WORKER_PRINCIPAL, "storage.objects.get", near_miss))
 
     def test_budget_identity_reconciliation_marker_is_review_and_worker_only(self):
         # TASK-126: Human Review and the Worker-side Third-ASR prefetch may

@@ -11,7 +11,7 @@ TRANSCRIPT = (
     "The 2024 study used 0.35 grams per kilogram and cognition was rescued by about ten to fifteen percent. "
     "For heavier guys Nordic curls are brutal, so I put a bench in front of me to catch my chest and shorten the range. "
     "I finished the diet at 89 kilos at six foot and I'm up to like 92 now. "
-    "This episode is brought to you by Elite FTS, use code MRR10 for ten percent off. "
+    "This episode is brought to you by Example Gear, use code DEMO10 for ten percent off. "
     "Personally I think creatine might explain why elite lifters get by on less sleep, but I'm not sure."
 )
 
@@ -39,7 +39,7 @@ def _note():
                 "title": "Nordic curls for heavier lifters",
                 "bottom_line": "Shorten the range with a bench to make them trainable.",
                 "bullets": [
-                    _bullet("Geoff puts a bench in front to catch his chest and shorten the range of motion.",
+                    _bullet("Casey puts a bench in front to catch his chest and shorten the range of motion.",
                             "so I put a bench in front of me to catch my chest", "personal_experience"),
                     _bullet("Warm-up regression for Nordic curls.", "put a bench in front of me"),
                     _bullet("He finished his diet at 89 kg at {{6 feet}} and is now about 92 kg.",
@@ -49,7 +49,7 @@ def _note():
             },
         ],
         "research_discussed": [{
-            "authors_year": "Gordji-Nejad 2024", "design": "RCT", "sample": "not stated", "duration": "not stated",
+            "authors_year": "Example et al. 2024", "design": "RCT", "sample": "not stated", "duration": "not stated",
             "result": "0.35 g/kg rescued cognition after sleep deprivation.", "host_comment": "Dose matters.",
             "basis": "research", "hedged": False,
             "anchor": "The 2024 study used 0.35 grams per kilogram",
@@ -57,10 +57,10 @@ def _note():
         "numbers": [{"topic": "Acute creatine", "value": "0.35 g/kg", "basis": "research"}],
         "takeaways": ["A higher acute creatine dose may help after a bad night."],
         "sources_mentioned": [],
-        "also_discussed": [{"text": "Elite FTS discount, use code MRR10.", "anchor": "use code MRR10 for ten percent off"}],
+        "also_discussed": [{"text": "Example Gear discount, use code DEMO10.", "anchor": "use code DEMO10 for ten percent off"}],
         "follow_up": [],
         "topics": ["creatine", "sleep"],
-        "people": ["Eric Helms"],
+        "people": ["Casey Example"],
         "existing_tags": [],
         "new_tag_candidates": [],
     }
@@ -188,7 +188,7 @@ class RenderTests(unittest.TestCase):
         body = self.body()
         self.assertIn("- 🔬 **Study** — The **2024** study used **0.35 g/kg**", body)
         self.assertIn("- 💬 **Opinion · unsure** — Creatine may partly explain", body)
-        self.assertIn("- 👤 **One person** — Geoff puts a bench in front", body)
+        self.assertIn("- 👤 **One person** — Casey puts a bench in front", body)
         # TASK-150: icon + word everywhere, also in the numbers table; the
         # former ▰▱ meter is gone.
         self.assertIn("| Acute creatine | 0.35 g/kg | 🔬 Study |", body)
@@ -227,7 +227,7 @@ class RenderTests(unittest.TestCase):
     def test_sections_have_bottom_lines_and_studies_follow_the_fixed_order(self):
         body = self.body()
         self.assertIn("## Creatine and sleep\n*A high acute dose rescued cognition after sleep loss.*", body)
-        self.assertIn("- 🔬 **Study** — **Gordji-Nejad 2024** — RCT → **0.35 g/kg** rescued cognition after sleep deprivation. *Hosts:* Dose matters.", body)
+        self.assertIn("- 🔬 **Study** — **Example et al. 2024** — RCT → **0.35 g/kg** rescued cognition after sleep deprivation. *Hosts:* Dose matters.", body)
 
     def test_bold_does_not_swallow_commas_or_mixed_terms(self):
         report = units.UnitReport()

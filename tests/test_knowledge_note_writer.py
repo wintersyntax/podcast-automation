@@ -41,6 +41,8 @@ EPISODE = {
 WRITER_ENV = {
     "PODCAST_KNOWLEDGE_WRITER_PRESET": "podcast-knowledge-writer",
     "PODCAST_KNOWLEDGE_API_KEY": "test-key",
+    # A developer .env may enable the TASK-119 fill; these tests cover the writer alone.
+    "PODCAST_KNOWLEDGE_FILL_PRESET": "",
 }
 
 
@@ -220,13 +222,15 @@ class GenerateTests(unittest.TestCase):
 
 
 class OrchestrationTests(unittest.TestCase):
+    ENV = WRITER_ENV
+
     def _run(self, objects, *, generate):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             compiled = root / "compiled.txt"
             compiled.write_text(TRANSCRIPT, encoding="utf-8")
             bucket = _FakeBucket(objects)
-            with patch.dict(os.environ, WRITER_ENV), patch.object(
+            with patch.dict(os.environ, self.ENV), patch.object(
                 orchestration, "RUNTIME_DIR", root / "knowledge"
             ), patch.object(
                 orchestration, "download_file_from_gcs", return_value=str(compiled)
@@ -269,7 +273,7 @@ class OrchestrationTests(unittest.TestCase):
         self.assertEqual(manifest["summary"]["policy_version"], NOTE_WRITER_POLICY_VERSION)
         self.assertEqual(manifest["summary"]["preset"], "podcast-knowledge-writer")
         self.assertNotIn("summary_review", manifest)
-        self.assertEqual(manifest["metadata"]["people"], ["Eric Helms"])
+        self.assertEqual(manifest["metadata"]["people"], ["Casey Example"])
         self.assertEqual(manifest["note_writer"]["note"], result.note)
         spend = manifest["note_writer"]["episode_spend"]
         self.assertEqual(spend["stages"]["note_writer"]["settled_usd"], "0.34")

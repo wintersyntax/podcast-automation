@@ -114,6 +114,10 @@ STAGE_SUMMARY_REVIEW = "summary_review"
 # TASK-118: the single-pass knowledge-note writer, the only knowledge stage
 # since TASK-146 retired summary + summary_review + metadata.
 STAGE_NOTE_WRITER = "note_writer"
+# TASK-119: the forced-decision coverage fill after the writer. It only adds
+# to an already-checked note and a failure never holds the episode, so it is
+# not a protected downstream stage.
+STAGE_NOTE_FILL = "note_fill"
 # TASK-125: the Whisper source is transcribed through OpenRouter before the
 # source generation exists, so its attempts live in a ledger keyed by the
 # downloaded audio's sha256 fingerprint (same shape and cap semantics) rather
@@ -133,6 +137,7 @@ AI_BUDGET_STAGE_IDS = frozenset(
         STAGE_METADATA,
         STAGE_SUMMARY_REVIEW,
         STAGE_NOTE_WRITER,
+        STAGE_NOTE_FILL,
         STAGE_MATERIALITY,
     }
 )

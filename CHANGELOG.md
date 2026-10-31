@@ -2,7 +2,14 @@
 
 Podcast Automation grew from a small feed-to-summary worker into a resumable, evidence-aware podcast processing system. The major decisions below explain **what changed, why it changed, and what the project gained**.
 
-This is a **selected engineering timeline**, not a list of tagged releases. The public portfolio intentionally begins with a single `Initial commit`; the history below is reconstructed from contemporaneous development notes and verified source commits. Some experiments described here were later retired and are **not** features of the current public edition.
+This is a **selected engineering timeline**, not a list of tagged releases. The public portfolio snapshot is prepared as a single root commit named `Initialize`; the history below is reconstructed from contemporaneous development notes and verified source commits. Some experiments described here were later retired and are **not** features of the current public edition.
+
+## October 31, 2026 — Public source refresh
+
+- Integrated reviewed product changes through private source `72677eee1e9e8059490d367edb41a9ffebe7b11f`, preserving disabled example configuration and synthetic demonstrations.
+- Included optional note-coverage fill, episode-index concurrency fixes, duplicate status display, newer materiality rules, bounded Third-ASR retries and idempotent terminology backfill.
+- Added a separate CC BY-SA 4.0 notice for the exercise lexicon and a narrowly scoped Gitleaks exception for one synthetic episode key.
+- Retained the exclusion of production evidence, personal configuration, credentials, private CI tooling and private Git history.
 
 ## August 23, 2026 — The first working pipeline
 

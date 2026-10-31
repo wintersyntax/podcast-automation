@@ -200,6 +200,9 @@ class PipelineTests(FindOriginalTests):
             patch("podcast_engine.pipeline.download_gcs_bytes",
                   side_effect=lambda path: self.texts[path].encode("utf-8")),
             patch("podcast_engine.pipeline.update_episode") as update,
+            # This test covers duplicate routing, not the independent 10-day alert.
+            patch("podcast_engine.pipeline._apple_transcript_late_notification_due",
+                  return_value=None),
             patch(
                 "podcast_engine.pipeline.acquire_apple_transcript",
                 return_value={"status": "uploaded"},

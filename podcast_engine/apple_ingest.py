@@ -56,7 +56,8 @@ def _load_index(bucket) -> tuple[list[dict], int]:
     if not blob.exists():
         return [], 0
     content = blob.download_as_text(encoding="utf-8")
-    blob.reload()
+    # Keep the generation returned with these bytes; a concurrent replacement
+    # is handled by the existing conditional-write retry, not a metadata GET.
     return json.loads(content), int(blob.generation)
 
 

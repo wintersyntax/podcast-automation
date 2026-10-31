@@ -9,7 +9,7 @@ from unittest.mock import patch
 from compiler.review_tiers import REVIEW_TIER_POLICY_VERSION, derive_review_tier
 from podcast_engine import human_review
 from podcast_engine.review_web import create_review_app
-from tests.test_third_asr_window import JEWETT_357
+from tests.test_third_asr_window import SYNTHETIC_DRAWING_CARD
 
 
 def _card(difference_id=1, **overrides):
@@ -37,15 +37,9 @@ def _triage(source, confidence="high"):
 
 def _two_of_three(**overrides):
     card = _card(category="negation", risk_reasons=["negation"], **{
-        key: copy.deepcopy(value) for key, value in JEWETT_357.items()
+        key: copy.deepcopy(value) for key, value in SYNTHETIC_DRAWING_CARD.items()
     })
-    card["third_asr"] = {
-        "text": (
-            "Look for the stage, as in the competitors you're up against, the "
-            "lighting, what the judges want to see. There's lots of errors that "
-            "will play. So thinking about that as more of a, like, not a bullseye."
-        )
-    }
+    card["third_asr"] = {"text": card["apple_context"]}
     card.update(overrides)
     return card
 
@@ -90,10 +84,10 @@ class DeriveReviewTierTests(unittest.TestCase):
     def test_exact_two_of_three_admits_even_a_protected_card(self):
         tier = derive_review_tier(_two_of_three())
         self.assertEqual((tier["tier"], tier["reason"], tier["source"]), ("A", "two_of_three", "apple"))
-        self.assertEqual(tier["text"], JEWETT_357["apple_text"])
+        self.assertEqual(tier["text"], SYNTHETIC_DRAWING_CARD["apple_text"])
 
     def test_third_voice_with_a_new_reading_is_tier_b(self):
-        tier = derive_review_tier(_card(**{key: copy.deepcopy(value) for key, value in JEWETT_357.items()}))
+        tier = derive_review_tier(_card(**{key: copy.deepcopy(value) for key, value in SYNTHETIC_DRAWING_CARD.items()}))
         self.assertEqual((tier["tier"], tier["reason"]), ("B", "third_new_reading"))
 
     def test_conflicting_signals_never_produce_tier_a(self):
@@ -102,7 +96,7 @@ class DeriveReviewTierTests(unittest.TestCase):
         protected_conflict = derive_review_tier(_two_of_three(triage=_triage("whisper")))
         self.assertEqual((protected_conflict["tier"], protected_conflict["reason"]), ("C", "conflicting_evidence"))
         heard_else = derive_review_tier(_card(
-            triage=_triage("apple"), **{key: copy.deepcopy(value) for key, value in JEWETT_357.items()}
+            triage=_triage("apple"), **{key: copy.deepcopy(value) for key, value in SYNTHETIC_DRAWING_CARD.items()}
         ))
         self.assertEqual((heard_else["tier"], heard_else["reason"]), ("B", "conflicting_evidence"))
 
@@ -276,12 +270,12 @@ class ReviewTiersV2Tests(unittest.TestCase):
         self.assertEqual(REVIEW_TIER_POLICY_VERSION, "review-tiers-v4")
 
     def test_only_colloquial_difference_proposes_the_spoken_form(self):
-        # Historical #239 and #374: the reviewer kept Whisper's spoken "gonna";
-        # the third voice (which writes "going to") is not evidence here.
+        # Invented phrases retain the distinction between a spoken colloquial
+        # form and a normalized third reading.
         cases = [
-            ("going to lead in to", "gonna lead into", "going to lead into"),
-            ("going to do some dead lifts, but I'm going to", "gonna do some deadlifts, but I'm gonna",
-             "going to do some deadlifts, but I'm going to"),
+            ("going to walk in to", "gonna walk into", "going to walk into"),
+            ("going to wear some wrist bands, but I'm going to", "gonna wear some wristbands, but I'm gonna",
+             "going to wear some wristbands, but I'm going to"),
         ]
         for apple, whisper, third in cases:
             with self.subTest(apple=apple):
@@ -289,11 +283,11 @@ class ReviewTiersV2Tests(unittest.TestCase):
                 self.assertEqual((tier["tier"], tier["reason"], tier["source"]), ("A", "spoken_colloquial_form", "whisper"))
 
     def test_colloquial_difference_with_other_words_needs_listening(self):
-        # Historical #255 and #399: other words differ too; the reviewer chose
-        # Whisper, while a folded comparison would have "confirmed" Apple.
+        # Other words also differ, so normalized colloquial wording cannot
+        # establish agreement.
         cases = [
-            ("fatigue is going to", "fatigue's gonna", "fatigue is gonna"),
-            ("like biohacker guy, who's going to like", "biohacker guy who's gonna", "like, biohacker guy who's gonna, like"),
+            ("practice is going to", "practice's gonna", "practice is gonna"),
+            ("like workshop guide, who's going to like", "workshop guide who's gonna", "like, workshop guide who's gonna, like"),
         ]
         for apple, whisper, third in cases:
             with self.subTest(apple=apple):

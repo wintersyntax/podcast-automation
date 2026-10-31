@@ -23,7 +23,7 @@ This is a public portfolio edition of a larger production system. All published 
 - **Multiple transcripts:** Apple Podcasts where available and OpenRouter Qwen3-ASR, with bounded chunks, retries, timestamp checks, provenance and AI-spend accounting.
 - **Conservative reconciliation:** deterministic alignment checks, bounded AI assistance and explicit Human Review of unresolved material conflicts.
 - **Faster review:** quick choices, materiality filtering, advisory Third-ASR evidence, durable decisions and feedback replay.
-- **Grounded Markdown notes:** a single-pass writer, transcript-anchor checks, SI conversion, structured topics/tags and deterministic rendering.
+- **Grounded Markdown notes:** a single-pass writer, optional bounded coverage fill, transcript-anchor checks, SI conversion, structured topics/tags and deterministic rendering.
 - **Operational visibility:** read-only PodcastOps status, audio-retention controls, optional notifications and checksum-based local Vault receipts.
 
 ## About this edition
@@ -167,4 +167,5 @@ See the [selected development milestones](CHANGELOG.md).
 
 ## License
 
-Released under the [MIT License](LICENSE).
+Application code is released under the [MIT License](LICENSE). The exercise
+lexicon uses CC BY-SA 4.0; see [third-party notices](THIRD_PARTY_NOTICES.md).

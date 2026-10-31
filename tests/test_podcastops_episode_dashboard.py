@@ -11,6 +11,10 @@ from podcast_engine.ops_dashboard import episode_status, sorted_episode_statuses
 from podcast_engine.review_web import PAGE, create_review_app
 
 
+def ops_page_html():
+    return create_review_app().test_client().get("/ops").get_data(as_text=True)
+
+
 def episode(key, compiler="review_required", summary="pending", published="2026-10-08"):
     return {
         "episode_key": key, "podcast": "Example Strength Podcast", "title": "Demo Episode Seven",
@@ -132,6 +136,36 @@ class EpisodeStatusProjectionTests(unittest.TestCase):
         self.assertEqual(episode_status(e, None, sync_error=True)["vault_sync"]["status"], "unavailable")
         e["status"]["summary"]["state"] = "pending"
         self.assertEqual(episode_status(e, None)["delivery"], "awaiting_summary")
+
+    def test_recorded_duplicate_is_shown_as_skipped_not_in_progress(self):
+        item = episode("example-duplicate", compiler="blocked")
+        item["status"]["apple_transcript"] = {"state": "pending"}
+        item["duplicate_check"] = {
+            "result": "duplicate", "decided_by": "worker",
+            "original_episode_key": "example-original", "original_podcast": "Example Training Podcast",
+            "original_title": "Fictional Workshop on Training Notes",
+            "containment": 0.97,
+        }
+        output = episode_status(item, None)
+        self.assertEqual(output["delivery"], "duplicate")
+        self.assertEqual(output["vault_sync"]["status"], "not_applicable")
+        self.assertEqual(output["duplicate_of"], {
+            "episode_key": "example-original", "podcast": "Example Training Podcast",
+            "title": "Fictional Workshop on Training Notes",
+        })
+        self.assertEqual(output["apple"], "pending")  # stored stage states stay as recorded
+
+        for check in ({"result": "not_duplicate"}, None):
+            other = episode("other", compiler="blocked")
+            if check:
+                other["duplicate_check"] = check
+            plain = episode_status(other, None)
+            self.assertIsNone(plain["duplicate_of"])
+            self.assertEqual(plain["delivery"], "processing")
+
+    def test_dashboard_labels_a_skipped_duplicate(self):
+        self.assertIn('"Skipped: duplicate"', ops_page_html())
+        self.assertIn("Same conversation as", ops_page_html())
 
     def test_sorting_is_stable_and_latest_first(self):
         first = episode_status(episode("older", published="2026-09-01"), None)
@@ -277,6 +311,18 @@ class EpisodeDashboardHttpTests(unittest.TestCase):
         self.assertEqual(row["vault_sync"]["status"], "unavailable")
         self.assertEqual(row["delivery"], "unverified")
         self.assertNotIn("forbidden", response.get_data(as_text=True))
+
+    def test_card_decision_does_not_leave_note_button_disabled(self):
+        # TASK-158: setBusy(true) disables every button; card decisions finish
+        # with busy=false plus render(), which must re-enable the note button
+        # (it sits outside #app and is never re-rendered).
+        page = PAGE
+        sync = page.split("function syncStaticButtons(){", 1)[1].split("}", 1)[0]
+        self.assertIn("note.disabled=busy||noteSaving", sync)
+        render = page.split("function render(){", 1)[1].split("renderMateriality();", 1)[0]
+        self.assertIn("syncStaticButtons();", render)
+        batch = page.split("function updateBatchActions(){", 1)[1].split("}", 1)[0]
+        self.assertIn("button.disabled=busy;", batch)
 
     def test_note_save_is_timeout_bounded_and_does_not_block_card_buttons(self):
         page = PAGE

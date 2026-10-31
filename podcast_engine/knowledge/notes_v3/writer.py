@@ -1,6 +1,7 @@
 """Production writer stage for single-pass knowledge notes (TASK-118).
 
-This is the only ``notes_v3`` module that calls a model. One
+Besides the TASK-119 ``fill_stage``, this is the only ``notes_v3`` module that
+calls a model. One
 ``anthropic/claude-sonnet-5.5`` request reads the whole canonical compiled
 transcript and returns a ``knowledge-note-v3`` JSON note; Python then
 validates its structure, applies the deterministic checks and renders the

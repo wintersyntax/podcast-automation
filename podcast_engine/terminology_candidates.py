@@ -455,6 +455,52 @@ def repair_duplicate_seed_observations(
     }
 
 
+def merge_backfill_observation(
+    registry: dict[str, Any],
+    observation: CandidateObservation,
+    *,
+    observed_at: str | None = None,
+) -> dict[str, Any]:
+    """Merge one past episode's observation at most once per candidate (TASK-160).
+
+    The idempotency key is the candidate's ``episode_keys`` list: an episode
+    already listed there (from a natural compile or an earlier backfill) is
+    ``already_recorded`` and changes nothing. When the bounded list is full
+    and does not name the episode, recording could double-count, so the
+    observation is skipped as ``episode_list_full``. A backfill therefore
+    records at most one observation per candidate and episode.
+    """
+
+    validate_candidate_registry(registry)
+    validate_candidate_observation(observation)
+    if not observation.episode_key:
+        raise ValueError("a backfill observation needs its episode_key")
+    if normalize_candidate_text(observation.text) in ACTIVE_TERMINOLOGY_KEYS:
+        return {"status": "already_active", "canonical": observation.text.strip(), "candidate_id": None}
+    candidate_id = candidate_id_for(observation.text)
+    entry = registry["candidates"].get(candidate_id)
+    if isinstance(entry, dict):
+        keys = entry.get("episode_keys", [])
+        episode = observation.episode_key.strip().casefold()
+        if any(key.casefold() == episode for key in keys):
+            return {"status": "already_recorded", "canonical": entry["canonical"], "candidate_id": candidate_id}
+        if len(keys) >= MAX_EPISODE_KEYS:
+            return {"status": "episode_list_full", "canonical": entry["canonical"], "candidate_id": candidate_id}
+    return merge_candidate_observation(registry, observation, observed_at=observed_at)
+
+
+BACKFILL_STATUSES = ("recorded", "already_recorded", "already_active", "episode_list_full")
+
+
+def backfill_counts(registry: dict[str, Any], observations: Iterable[CandidateObservation]) -> dict[str, int]:
+    """Merge observations into ``registry`` (mutated) and count the outcomes."""
+
+    counts = {status: 0 for status in BACKFILL_STATUSES}
+    for observation in observations:
+        counts[merge_backfill_observation(registry, observation)["status"]] += 1
+    return counts
+
+
 class CandidateRegistryStore:
     """Durable GCS candidate registry with optimistic concurrency.
 
@@ -619,6 +665,36 @@ class CandidateRegistryStore:
             except PreconditionFailed:
                 continue
         raise RuntimeError(f"{self.path} changed repeatedly while seeding candidates")
+
+    def record_backfill(self, observations: Iterable[CandidateObservation]) -> dict[str, int]:
+        """Record one past episode's observations at most once (TASK-160); idempotent."""
+
+        batch = list(observations)
+        for observation in batch:
+            validate_candidate_observation(observation)
+        counts = {status: 0 for status in BACKFILL_STATUSES}
+        if not batch:
+            return counts
+        PreconditionFailed = self._precondition_failed_type()
+        for _ in range(MAX_WRITE_RETRIES):
+            registry, generation = self._read()
+            if registry is None:
+                self.load()
+                continue
+            working = deepcopy(registry)
+            counts = backfill_counts(working, batch)
+            if counts["recorded"] == 0:
+                return counts
+            try:
+                self.bucket.blob(self.path).upload_from_string(
+                    json.dumps(working, ensure_ascii=False, indent=2) + "\n",
+                    content_type="application/json",
+                    if_generation_match=generation,
+                )
+                return counts
+            except PreconditionFailed:
+                continue
+        raise RuntimeError(f"{self.path} changed repeatedly while backfilling candidates")
 
     def repair_seed_duplicates(
         self, observations: Iterable[CandidateObservation], *, seed_id: str

@@ -13,6 +13,24 @@ A completed canonical transcript is transformed into a durable knowledge note th
 
 The model never authors arbitrary frontmatter, controls publication state, or silently repairs uncertain transcript wording. Source-truth decisions remain upstream in the compiler and Human Review.
 
+## Optional coverage fill
+
+After the checked writer response, deterministic detectors look for uncovered
+exercise advice, unit-bearing numbers and transcript windows without an anchored
+note unit. Uncovered windows alone do not trigger another model request.
+
+The fill is disabled unless `PODCAST_KNOWLEDGE_FILL_PRESET` is configured. When
+enabled and triggered, its verified current preset must use exactly the prompt
+in `prompts/knowledge/note-fill-v1.md`. It receives the whole transcript, the note
+and bounded candidates, and proposes add, extend or skip decisions. Python
+validates anchors and applies admissible changes under the episode budget. An
+invalid response permits one further request; truncation does not. A failed fill
+is recorded while the checked writer note remains publishable. The fill never
+changes the canonical transcript.
+
+The vocabulary and its separate license are documented in
+[`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md).
+
 ## Current module boundary
 
 The obsolete multi-pass summary, summary-review, metadata and notes-v2 paths are not shipped. The active public implementation consists of `podcast_engine/knowledge/orchestration.py`, `notes_v3/` (including quantity handling), `episode_inputs.py`, `client.py`, `frontmatter.py`, and the separately versioned writer prompt. The published knowledge-note demo uses fully invented transcript content and the current deterministic renderer.

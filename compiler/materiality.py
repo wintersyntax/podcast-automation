@@ -6,7 +6,10 @@ a claim or its polarity, an entity, a term with a different meaning. Fillers,
 false starts, repetitions, contractions and harmless rewording -- including a
 term or name spelled differently with the same meaning -- do not need him.
 Numbers stay with the reviewer, except the same numbers written differently
-("2am" / "2 a.m.", "forties" / "40s"; user decision 2026-10-07).
+("2am" / "2 a.m.", "forties" / "40s"; user decision 2026-10-07; decimals and
+ordinals such as ".8" / "zero point eight" and "3rd" / "third" from v6).
+Sponsor reads never reach him (2026-10-14), including a reading in another
+language than the other reading (a dynamic ad, v6).
 
 This module is the deterministic first layer. It is conservative by design:
 a card is immaterial only when every word that differs between the two
@@ -30,7 +33,7 @@ from difflib import SequenceMatcher
 from .review_tiers import _scoped_text
 from .third_asr_window import _scope_contexts, anchored_third_asr_window
 
-MATERIALITY_POLICY_VERSION = "materiality-v5"
+MATERIALITY_POLICY_VERSION = "materiality-v6"
 CONTEXT_CHARS = 300
 _RULE_CONTEXT_TOKENS = 12
 
@@ -75,6 +78,18 @@ LONG_ONE_SIDED_WORDS = 25
 # decision 2026-10-14: ads never reach the reviewer). Speech that Whisper
 # skipped still occupies its seconds of audio and stays with the reviewer.
 ABSENT_FROM_AUDIO_MAX_SECONDS = 2.0
+# A long reading in another language than the episode's is treated as a
+# dynamic ad when the other reading is English or absent. Words that
+# are function words in French, Dutch, German or Spanish but not English
+# words, plus words with accented letters, make up at least this share of it.
+FOREIGN_LANGUAGE_MIN_SHARE = 0.2
+_FOREIGN_FUNCTION_WORDS = frozenset("""
+de la le les et des du un une pour avec sur dans est sont ne vous nous qui que au aux jusqu comme encore votre nos
+het een van voor met op tot zijn niet ook maar wij jullie bij naar deze dit wordt zowel vanaf alle
+und der das mit nicht ist sie wir auch auf zu den dem ein eine
+el los las para con por y es una como
+""".split())
+_WORDS = re.compile(r"[^\W\d_]+")
 AD_MARKERS = (
     "brought to you by", "sponsored by", "promo code", "use code", "terms apply",
     "subject to credit approval",
@@ -129,6 +144,12 @@ _NUMBER_TENS = {word: 10 * value for value, word in enumerate(
     "_ _ twenty thirty forty fifty sixty seventy eighty ninety".split()) if word != "_"}
 _NUMBER_DECADES = {word[:-1] + "ies": value for word, value in _NUMBER_TENS.items()}  # forties
 _NUMBER_SCALES = {"hundred": 100, "thousand": 1000, "million": 1_000_000}
+# Ordinal words say a number too ("third" / "3rd"); an "ord" marker keeps
+# "first" apart from "one".
+_ORDINAL_UNITS = {word: value for value, word in enumerate(
+    "_ first second third fourth fifth sixth seventh eighth ninth tenth eleventh twelfth thirteenth "
+    "fourteenth fifteenth sixteenth seventeenth eighteenth nineteenth".split()) if word != "_"}
+_ORDINAL_TENS = {word[:-1] + "ieth": value for word, value in _NUMBER_TENS.items()}  # twentieth
 _NUMBER_UNIT_WORDS = {
     "kg": "kg", "kgs": "kg", "kilo": "kg", "kilos": "kg", "kilogram": "kg", "kilograms": "kg",
     "lb": "lb", "lbs": "lb", "pound": "lb", "pounds": "lb", "%": "percent",
@@ -140,7 +161,9 @@ def _number_format_tokens(text: str | None) -> list[str]:
     text = unicodedata.normalize("NFKC", text or "").casefold().replace("’", "'")
     text = re.sub(r"\b([ap])\.\s?m\b\.?", r"\1m", text)  # a.m. -> am
     text = re.sub(r"(\d),(\d{3})\b", r"\1\2", text)       # 1,000 -> 1000
+    text = re.sub(r"(?<![\w.])\.(\d)", r"0.\1", text)       # .8 -> 0.8
     text = re.sub(r"(\d)[.:](\d)", r"\1_\2", text)         # 7.30 / 7:30 stay one token
+    text = re.sub(r"(\d)(?:st|nd|rd|th)\b", r"\1 ord", text)  # 3rd -> 3 ord
     text = re.sub(r"(\d)([a-z%])", r"\1 \2", text)         # 2am -> 2 am, 40s -> 40 s
     return [_NUMBER_UNIT_WORDS.get(token, token) for token in _NUMBER_TOKEN.findall(text)]
 
@@ -163,6 +186,15 @@ def _number_words_to_digits(tokens: list[str]) -> list[str]:
         elif token in _NUMBER_DECADES:
             flush()
             out.extend([str(_NUMBER_DECADES[token]), "s"])
+        elif token in _ORDINAL_UNITS or token in _ORDINAL_TENS:
+            number = _ORDINAL_UNITS.get(token) or _ORDINAL_TENS[token]
+            if last == "ten" and token in _ORDINAL_UNITS and number <= 9:
+                value += number  # twenty third
+            else:
+                flush()
+                value = number
+            flush()
+            out.append("ord")
         elif token in _NUMBER_TENS:
             if last in (None, "scale"):
                 value, last = (value or 0) + _NUMBER_TENS[token], "ten"
@@ -188,6 +220,29 @@ def _number_words_to_digits(tokens: list[str]) -> list[str]:
             flush()
             out.append(token)
     flush()
+    return _spoken_decimals(out)
+
+
+def _spoken_decimals(tokens: list[str]) -> list[str]:
+    """ "zero point eight" -> 0_8, "one point two five" -> 1_25 (the form of "1.25")."""
+
+    out: list[str] = []
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if (
+            token.isdigit() and index + 2 < len(tokens) and tokens[index + 1] == "point"
+            and tokens[index + 2].isdigit()
+        ):
+            fraction = tokens[index + 2]
+            index += 3
+            while len(fraction) == 1 and index < len(tokens) and len(tokens[index]) == 1 and tokens[index].isdigit():
+                fraction += tokens[index]
+                index += 1
+            out.append(f"{token}_{fraction}")
+            continue
+        out.append(token)
+        index += 1
     return out
 
 
@@ -207,7 +262,7 @@ def number_canonical(text: str | None) -> list[str]:
 # equals "twenty, twenty-five", and a unit only counts right after a number.
 
 _VALUE_SEGMENTS = re.compile(r"(?<!\d)[,;]|[,;](?!\d)")
-_VALUE_UNITS = frozenset({"percent", "kg", "lb", "s"})
+_VALUE_UNITS = frozenset({"percent", "kg", "lb", "s", "ord"})
 # "nineteen forty four" is a year; "twenty seventeen" stays ambiguous ("20, 17"),
 # like the number-format rule, so it keeps the card with the reviewer.
 _YEAR_CENTURIES = frozenset({"11", "12", "13", "14", "15", "16", "17", "18", "19"})
@@ -280,6 +335,26 @@ def number_gap_source(inputs: dict) -> str | None:
     return "whisper" if empty[0] == "apple" else "apple"
 
 
+_ORDINAL_SUFFIXES = frozenset({"st", "nd", "rd", "th"})
+
+
+def _without_numbers(tokens: list[str]) -> list[str]:
+    """Comparison tokens without the words that say numbers."""
+
+    kept: list[str] = []
+    for index, token in enumerate(tokens):
+        previous = tokens[index - 1] if index else ""
+        following = tokens[index + 1] if index + 1 < len(tokens) else ""
+        if is_number_token(token) or token in _ORDINAL_UNITS or token in _ORDINAL_TENS:
+            continue
+        if token in _ORDINAL_SUFFIXES and previous.isdigit():
+            continue
+        if token == "point" and is_number_token(previous) and is_number_token(following):
+            continue
+        kept.append(token)
+    return kept
+
+
 def _is_negation(token: str) -> bool:
     return token.startswith("NEG_") or token in NEGATIONS or token.endswith("n't")
 
@@ -331,6 +406,9 @@ def _interjection(text: str | None, right: str | None) -> bool:
     return raw.endswith((",", ".", "!", "?")) or following[:1] in {",", ".", "!", "?"}
 
 
+_LEADING_POINT = re.compile(r"(?:^|[^\w.])\.$")
+
+
 def materiality_inputs(item: dict) -> dict | None:
     """The scoped readings, Whisper-side context and anchored Third-ASR text.
 
@@ -342,12 +420,20 @@ def materiality_inputs(item: dict) -> dict | None:
     apple, whisper = _scoped_text(item, "apple"), _scoped_text(item, "whisper")
     if apple is None or whisper is None:
         return None
+    readings = {"apple": apple, "whisper": whisper}
     left = right = ""
+    found = False
     for source in ("whisper", "apple"):
         split = _scope_contexts(item, source)
-        if split is not None:
-            left, right = split[0], split[1]
-            break
+        if split is None:
+            continue
+        if _LEADING_POINT.search(split[0]) and readings[source][:1].isdigit():
+            # The card starts inside ".8": the scope left its point in the
+            # context, so the reading says "8" where the speaker said ".8".
+            readings[source] = "." + readings[source]
+        if not found:
+            left, right, found = split[0], split[1], True
+    apple, whisper = readings["apple"], readings["whisper"]
     window = anchored_third_asr_window(item) if isinstance(item.get("third_asr"), dict) else None
     inputs = {
         "apple": apple,
@@ -400,13 +486,29 @@ def _one_sided_long(inputs: dict) -> str | None:
     return None
 
 
-def advertisement_source(inputs: dict) -> str | None:
-    """The source whose long one-sided stretch is a sponsor read, if any.
+def foreign_language(text: str | None) -> bool:
+    """A long reading mostly in another language than English."""
 
-    Either it names a sponsor (marker words), or it is an Apple-only stretch
-    with no room for it in the audio Whisper transcribed.
+    words = _WORDS.findall(unicodedata.normalize("NFKC", text or "").casefold().replace("’", "'"))
+    if len(words) < LONG_ONE_SIDED_WORDS:
+        return False
+    foreign = sum(word in _FOREIGN_FUNCTION_WORDS or not word.isascii() for word in words)
+    return foreign >= FOREIGN_LANGUAGE_MIN_SHARE * len(words)
+
+
+def advertisement_source(inputs: dict) -> str | None:
+    """The source whose reading is a sponsor read the other lacks, if any.
+
+    A long reading in another language than the other reading is a dynamic
+    ad, whatever the other reading says (often the other source's own ad at
+    the same place). Otherwise a long one-sided stretch is a sponsor read
+    when it names a sponsor (marker words), or when it is an Apple-only
+    stretch with no room for it in the audio Whisper transcribed.
     """
 
+    foreign = [source for source in ("apple", "whisper") if foreign_language(inputs[source])]
+    if len(foreign) == 1:
+        return foreign[0]
     longer = _one_sided_long(inputs)
     if longer is None:
         return None
@@ -441,7 +543,9 @@ def rule_verdict(inputs: dict) -> tuple[str, str]:
             return "immaterial", "number_format"
         if not same_number_values(inputs["apple"], inputs["whisper"]):
             return "reviewer", "number"
-        # The same numbers: the rest of the card is judged like any other.
+        # The same numbers: the rest of the card is judged like any other,
+        # without the words that say them ("0.8" / "zero point eight").
+        apple, whisper = _without_numbers(apple), _without_numbers(whisper)
     if _one_sided_long(inputs) is not None:
         return "reviewer", "one_sided_long"
     if "".join(apple) == "".join(whisper):

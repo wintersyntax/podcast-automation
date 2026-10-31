@@ -1,8 +1,28 @@
 # Public extraction scope and upstream status
 
-**Audited private source:** `wintersyntax/podcast-worker` at `d8678469077dd4b644fcc950562e10fd11ee730e` (15 October 2026).
-**Public base:** `wintersyntax/podcast-automation` at `2e869bb057b21c1d795f09ca5754a94cdbac4938`.
+**Audited private source:** `wintersyntax/podcast-worker` at `72677eee1e9e8059490d367edb41a9ffebe7b11f` (31 October 2026 preparation).
+**Public base:** `wintersyntax/podcast-automation` at `f8b7925d4af2466123db4069e96ed464a2fb5264`.
 This repository is an independently tested, curated **derivative**, not an automatic mirror, a production deployment, or a transfer of private Git history.
+
+## October 31 refresh
+
+The previously published code was integrated against the exact private source
+above while preserving public-specific sanitization and synthetic demos. The
+refresh includes optional bounded note-coverage fill, its versioned vocabulary
+and prompt, consistent episode-index generation reads, duplicate status rows,
+materiality decimal/ordinal handling, bounded Third-ASR retries and idempotent
+terminology-candidate backfill. New regression examples use fictional data;
+captured advertisements and episode-specific commentary are excluded.
+
+The terminology operator command's default seed file remains omitted; provide
+an independently reviewed seed explicitly if using its seed subcommand. Backfill
+is a dry run unless `--execute` is supplied and requires your own deployment.
+
+The exercise lexicon is CC BY-SA 4.0, separately from the MIT application code.
+See [third-party notices](../THIRD_PARTY_NOTICES.md).
+
+This refresh is prepared locally. Its tests do not assert that it has been
+published or that GitHub's historical pull-request objects have been purged.
 
 ## Included in the October 15 extraction
 

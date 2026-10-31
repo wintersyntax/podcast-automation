@@ -71,7 +71,8 @@ def load_episodes_with_generation():
     if not blob.exists():
         return [], 0
     content = blob.download_as_text(encoding="utf-8")
-    blob.reload()
+    # The SDK sets generation from the download response. A later reload can
+    # 404 if another writer has already replaced that exact generation.
     return (
         [ensure_v3_record(episode) for episode in json.loads(content)],
         int(blob.generation),

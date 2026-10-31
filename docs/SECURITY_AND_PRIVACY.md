@@ -24,7 +24,7 @@ The private source tree is not a safe publishable archive. Newer modules, tests,
 ## October 2026 extraction safeguards
 
 The public snapshot was refreshed against private source commit
-`d8678469077dd4b644fcc950562e10fd11ee730e`.
+`72677eee1e9e8059490d367edb41a9ffebe7b11f` on 31 October 2026.
 Defaults for cloud resource identity, review URL and allowed review email
 were replaced with examples. The private production configuration and
 CI runner tooling were not copied. The public extraction preserves only
@@ -35,3 +35,13 @@ credential/token formats, real deployment identifiers, Mac user paths,
 personal email domains and forbidden private-development/evidence paths.
 It is a fail-closed **backstop**, not a guarantee that every kind of secret
 has been detected. Review every future upstream patch for disclosure risk.
+
+The October 31 preparation also runs Gitleaks 8.30.1 with its default rules.
+`.gitleaks.toml` allows only one reviewed, sequential synthetic episode key in
+two specific test files; it does not allow credentials or whole test directories.
+Scan reports contain redacted findings only.
+
+A fresh root commit has no private-history parents. Replacing the public branch
+does not purge GitHub's read-only pull-request refs, cached commit views, forks
+or existing clones. Those require separate reconciliation; publication must not
+be described as complete removal of every server-side historical object.

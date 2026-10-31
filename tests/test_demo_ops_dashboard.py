@@ -40,4 +40,3 @@ class PodcastOpsDemoTests(unittest.TestCase):
         assert "Mac copy confirmed" in body
         assert "not that iCloud uploaded it" in body
         assert "Synthetic demo index" in body
-

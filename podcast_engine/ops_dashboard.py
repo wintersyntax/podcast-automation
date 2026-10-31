@@ -7,6 +7,7 @@ or inferred success. Missing audit evidence remains unknown, not zero.
 
 from __future__ import annotations
 
+from .episode_duplicates import is_duplicate
 from .human_review import pending_review_items
 from .materiality_queue import GROUPS, materiality_groups
 from .vault_sync_receipts import receipt_status
@@ -38,6 +39,23 @@ def _unavailable_recompile(state: str) -> dict:
     return {"status": state, "request_id": None, "updated_at": None, "completed_at": None}
 
 
+def _bounded(value: object, limit: int = 300) -> str | None:
+    return value if isinstance(value, str) and value and len(value) <= limit else None
+
+
+def _duplicate_of(episode: dict) -> dict | None:
+    """The earlier episode a recorded duplicate repeats (TASK-135), or ``None``."""
+
+    if not is_duplicate(episode):
+        return None
+    check = episode["duplicate_check"]
+    return {
+        "episode_key": _bounded(check.get("original_episode_key"), 64),
+        "podcast": _bounded(check.get("original_podcast")),
+        "title": _bounded(check.get("original_title")),
+    }
+
+
 def episode_status(episode: dict, record: dict | None, *, audit_error: str | None = None, summary_bytes: bytes | None = None, sync_receipt: dict | None = None, sync_error: bool = False) -> dict:
     """Produce one minimal JSON-safe status row from existing persisted evidence.
 
@@ -66,6 +84,11 @@ def episode_status(episode: dict, record: dict | None, *, audit_error: str | Non
         receipt=sync_receipt,
         receipt_error=sync_error,
     )
+    # A recorded duplicate is deliberately never processed further, so its
+    # pending stages are not work in progress (TASK-156).
+    result["duplicate_of"] = _duplicate_of(episode)
+    if result["duplicate_of"] is not None:
+        result["vault_sync"] = {**result["vault_sync"], "status": "not_applicable"}
     stage_status = episode.get("status") if isinstance(episode.get("status"), dict) else {}
     summary_status = stage_status.get("summary") if isinstance(stage_status.get("summary"), dict) else {}
     compiler_status = stage_status.get("compiler") if isinstance(stage_status.get("compiler"), dict) else {}
@@ -83,7 +106,9 @@ def episode_status(episode: dict, record: dict | None, *, audit_error: str | Non
         and len(summary_status["updated_at"]) <= 64
         else None
     )
-    if result["summary"] in {"ready", "completed"}:
+    if result["duplicate_of"] is not None:
+        result["delivery"] = "duplicate"
+    elif result["summary"] in {"ready", "completed"}:
         result["delivery"] = (
             "synced_to_mac" if result["vault_sync"]["status"] == "confirmed"
             else "awaiting_vault_sync" if result["vault_sync"]["status"] in {"unconfirmed", "outdated"}

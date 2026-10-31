@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from compiler.materiality import materiality_inputs, rule_verdict
+from compiler.materiality import foreign_language, materiality_inputs, rule_verdict
 from compiler.materiality_choice import choose_reading, proposal
 
 
@@ -139,10 +139,87 @@ class MaterialityRuleTests(unittest.TestCase):
             ("judge", "content"),
         )
 
+    def test_decimals_and_ordinals_said_differently_are_settled(self):
+        # Synthetic cards with equivalent decimal and ordinal readings.
+        self.assertEqual(verdict("the invented estimate", "is 0.8", "it was zero point eight", "units a week"),
+                         ("immaterial", "function_words"))
+        self.assertEqual(verdict("the example runs", "from May to August 3rd",
+                                 "on. You know, from May to you know August third", "in this fictional schedule"),
+                         ("immaterial", "function_words"))
+        for apple, whisper in (
+            ("0.8, 0.75", ".8 .75"),
+            ("1.25", "one point two five"),
+            ("0.05", ".05"),
+            ("the 21st", "the twenty first"),
+            ("the 2nd set", "the second set"),
+        ):
+            with self.subTest(apple=apple):
+                self.assertEqual(verdict("so", apple, whisper, "and"), ("immaterial", "number_format"))
+
+    def test_decimals_and_ordinals_that_differ_stay_with_the_reviewer(self):
+        for apple, whisper in (
+            ("0.8", "8"),
+            ("0.8", "zero point nine"),
+            ("the 3rd", "the three"),
+            ("first", "one"),
+            ("1.25", "one point two"),
+        ):
+            with self.subTest(apple=apple):
+                self.assertEqual(verdict("so", apple, whisper, "and"), ("reviewer", "number"))
+
+    def test_card_starting_after_a_bare_decimal_point_keeps_the_point(self):
+        # Whisper wrote ".8"; the card's scope begins after the point, so the
+        # reading is "8" and the point sits at the end of the left context.
+        item = {
+            "id": 14,
+            "apple_text": "0.8",
+            "whisper_text": "8",
+            "apple_context": "the example averages about 0.8 units per week.",
+            "whisper_context": "the the example averages about .8 units per week, and",
+        }
+        inputs = materiality_inputs(item)
+        self.assertEqual((inputs["apple"], inputs["whisper"]), ("0.8", ".8"))
+        self.assertEqual(rule_verdict(inputs), ("immaterial", "number_format"))
+        # A sentence end before a number is not a decimal point.
+        item = card("That was it.", "8 sets", "eight sets", "of squats")
+        self.assertEqual(materiality_inputs(item)["whisper"], "eight sets")
+
+    def test_reading_in_another_language_is_a_dynamic_ad(self):
+        # Entirely invented multilingual passages; no captured advertisements.
+        french = ("Dans notre atelier imaginaire, nous préparons une démonstration pour les visiteurs. "
+                  "Vous pouvez venir avec votre équipe et découvrir les outils dans une salle calme. "
+                  "Nous avons des tables pour les exercices et une affiche sur le mur. "
+                  "Les 12 exemples sont fictifs et ne décrivent aucun produit réel.")
+        dutch = ("In het denkbeeldige atelier zijn de tafels klaar voor een bezoek. "
+                 "Wij werken met een team en jullie kunnen naar deze ruimte komen. "
+                 "Het gereedschap wordt niet verkocht en ook de voorbeelden zijn fictief. "
+                 "Wij geven 14 voorbeelden bij het bord en voor alle bezoekers is er een rustige plek.")
+        mixed = "This invented announcement switches languages. " + french
+        airline = ("This fictional travel announcement describes a quiet waiting room with chairs near a window. "
+                   "Visitors may read an invented timetable, put their bags beside the table and ask the "
+                   "imaginary attendant where the next practice session will take place after the break.")
+        trailer = ("An invented character walks through an empty workshop and finds a blue notebook on the table. "
+                   "The next scene shows a garden where the same character waters a plant before returning "
+                   "to the workshop to finish a simple drawing for a fictional class.")
+        self.assertEqual(verdict("", airline, french, "Casey, welcome"), ("advertisement", "use_apple"))
+        self.assertEqual(verdict("Next time.", trailer, dutch, ""), ("advertisement", "use_apple"))
+        self.assertEqual(verdict("in this example", "", mixed, "Casey"), ("advertisement", "use_apple"))
+        self.assertEqual(verdict("", french, "", "Casey"), ("advertisement", "use_whisper"))
+        # Both readings in another language: nothing to tell an ad by.
+        self.assertEqual(verdict("", french, dutch, "Casey")[0], "reviewer")
+        for english in (airline, trailer, (
+            "So sometime between seven and nine, depending upon the day and whether it's the weekend, "
+            "I'm having breakfast, which typically consists of some type of mix of vegetables, and or toast"),
+            "We did a study in Le Mans and La Jolla with de Vries and van der Berg, a café owner, on the "
+            "naïve approach to dieting and training, and the results were really quite interesting to us"):
+            with self.subTest(english=english[:30]):
+                self.assertFalse(foreign_language(english))
+
     def test_sponsor_read_in_one_source_keeps_the_other_reading(self):
-        ad = ("This message is brought to you by AppleCard. With AppleCard, you earn unlimited daily cash back "
-              "on everyday purchases, like groceries, merch or tickets to the game, anywhere it is accepted.")
-        self.assertEqual(verdict("", ad, "", ". Milo, having spoken to you off air"), ("advertisement", "use_whisper"))
+        ad = ("This invented message is brought to you by Example Workshop. Our fictional kit has a blue box, "
+              "an instruction card and a practice sheet for an imaginary project. Nothing in this example "
+              "is offered for sale and no real service is described.")
+        self.assertEqual(verdict("", ad, "", ". Casey, welcome to the example"), ("advertisement", "use_whisper"))
         # A sponsor read with numbers is still recognised before the number rule.
         self.assertEqual(verdict("", "", ad + " Call 555 today.", "and welcome"), ("advertisement", "use_apple"))
 
@@ -150,9 +227,9 @@ class MaterialityRuleTests(unittest.TestCase):
         # Dynamic ad insertion: Apple transcribed an enclosure with a sponsor
         # read the audio Whisper transcribed never had, so the Whisper words
         # on either side of it touch. No marker words are needed.
-        ad = ("College football is back, so Hilton called on me, the Superstition Concierge, to make your fan "
-              "rituals a reality. Need a room to match your lucky number? We got you. Wanna make sure our team "
-              "doesn't wash your lucky jersey? One stay and you will see.")
+        ad = ("Our imaginary workshop opens beside a quiet garden where visitors can look at wooden models "
+              "and practice drawing shapes on plain paper. The fictional guide explains how each model "
+              "fits together before everyone returns the tools to a shelf near the door.")
         for start, end in ((1.32, 1.32), (1.46, 1.84), (4011.41, 4011.49)):
             item = card("", ad, "", "Welcome back to the show", whisper_start_timestamp=start,
                         whisper_end_timestamp=end)

@@ -44,8 +44,6 @@ LONG_TRANSCRIPT_WORDS = 6_000
 ANCHOR_NGRAM_WORDS = 12
 MIN_HALLUCINATION_RUNS = 3
 MAX_HALLUCINATION_PHRASE_WORDS = 8
-WHISPER_CONFIDENT_LOGPROB = -1.0
-WHISPER_HIGH_NO_SPEECH_PROB = 0.6
 MAX_RESOLVER_ITEMS = 40
 MAX_TRIAGE_ITEMS = 80
 TRIAGE_REASON_MAX_LENGTH = 150  # TASK-076: tightened from 400 so triage's
@@ -1193,7 +1191,6 @@ def _source_only_semantic_risk(
     domain_terms: Sequence[str],
     citation_signal: bool,
     proper_name_signal: bool,
-    low_whisper_acoustic_confidence: bool,
 ) -> list[str]:
     """Return deterministic reasons that one-sided evidence merits review.
 
@@ -1219,8 +1216,6 @@ def _source_only_semantic_risk(
             for category, terms in DOMAIN_GLOSSARY.items()
             if category != "citation" and any(term in terms for term in domain_terms)
         )
-    if low_whisper_acoustic_confidence:
-        reasons.append("low_whisper_acoustic_confidence")
     return list(dict.fromkeys(reasons))
 
 
@@ -1257,20 +1252,6 @@ def _source_only_proper_name_signal(
     )
 
 
-def _low_whisper_acoustic_confidence(
-    average_logprob: float | None,
-    no_speech_probability: float | None,
-) -> bool:
-    """Reuse Whisper's existing confidence thresholds for a review decision."""
-
-    return (
-        no_speech_probability is not None
-        and no_speech_probability >= WHISPER_HIGH_NO_SPEECH_PROB
-    ) or (
-        average_logprob is not None
-        and average_logprob < WHISPER_CONFIDENT_LOGPROB
-    )
-
 
 def _source_only_kind_and_category(
     risk_reasons: Sequence[str],
@@ -1289,8 +1270,6 @@ def _source_only_kind_and_category(
         return "number_mismatch", "protocol_number"
     if "negation" in risk_reasons:
         return "negation_mismatch", "negation"
-    if "low_whisper_acoustic_confidence" in risk_reasons:
-        return "source_only_low_whisper_acoustic_confidence", "other"
     category = _resolver_category(
         kind="source_only_domain_term",
         domain_terms=domain_terms,
@@ -1330,10 +1309,7 @@ def _source_only_is_confirmed_filler(item: Difference) -> bool:
     semantic_risk = {
         reason
         for reason in item.risk_reasons
-        if reason not in {
-            "low_whisper_acoustic_confidence",
-            "suspected_repetition",
-        }
+        if reason != "suspected_repetition"
     }
     if semantic_risk or item.domain_terms or item.citation_signal:
         return False
@@ -1344,6 +1320,8 @@ def _source_only_is_confirmed_filler(item: Difference) -> bool:
 def _anonymous_resolver_kind(kind: str) -> str:
     """Remove provider identity from model-facing difference labels."""
 
+    # The acoustic-confidence kind and reason are no longer produced (TASK-012);
+    # the mapping stays so older stored items never expose provider identity.
     if kind == "source_only_low_whisper_acoustic_confidence":
         return "source_only_low_acoustic_confidence"
     if kind in {"whisper_addition", "whisper_omission"}:
@@ -1615,13 +1593,6 @@ def _build_differences(
                 source_tokens,
                 source_span_text,
             ),
-            low_whisper_acoustic_confidence=(
-                source_only_source == "whisper"
-                and _low_whisper_acoustic_confidence(
-                    whisper_avg_logprob,
-                    whisper_no_speech_prob,
-                )
-            ),
         ) if source_only_source else []
         if source_only_suspected_repetition:
             risk_reasons.append("suspected_repetition")
@@ -1633,10 +1604,7 @@ def _build_differences(
                 citation_signal,
             )
             semantic_risk = any(
-                reason not in {
-                    "low_whisper_acoustic_confidence",
-                    "suspected_repetition",
-                }
+                reason != "suspected_repetition"
                 for reason in risk_reasons
             )
             severity = "high" if semantic_risk else "medium"
@@ -1873,10 +1841,7 @@ def _assign_merge_decisions(
         if item.source_only and item.risk_reasons:
             item.selected_source = primary_source
             semantic_risk = any(
-                reason not in {
-                    "low_whisper_acoustic_confidence",
-                    "suspected_repetition",
-                }
+                reason != "suspected_repetition"
                 for reason in item.risk_reasons
             )
             if semantic_risk:
@@ -1897,17 +1862,6 @@ def _assign_merge_decisions(
                     "silently removed"
                 )
                 continue
-            # Acoustic confidence is observability, not semantic evidence.  Keep
-            # the one-sided span exactly as ordinary preserved evidence while its
-            # low-confidence reason remains in the JSON report.
-            item.selected_source = item.source_only_source
-            item.merge_action = "preserved_source_only_low_whisper_confidence"
-            item.preservation_class = "preserved_low_whisper_confidence"
-            item.selection_reason = (
-                "Low Whisper acoustic confidence alone does not delete preserved "
-                "source-only evidence or require Human Review"
-            )
-            continue
 
         if item.kind in {"number_mismatch", "negation_mismatch"}:
             item.selected_source = primary_source
@@ -1999,25 +1953,20 @@ def _assign_merge_decisions(
             )
             continue
 
+        # TASK-012: a remaining low-risk difference keeps the verbatim Whisper
+        # reading whenever Whisper segment metadata is present (always true for
+        # the hosted ASR; plain-text test fixtures keep the primary). This
+        # used to be gated by acoustic thresholds (avg_logprob >= -1.0,
+        # no_speech_prob < 0.6) that the hosted ASR never fails, and an offline
+        # check against reviewed decisions found no usable signal in its
+        # confidence, so the rule is now explicit.
         if item.whisper_avg_logprob is not None:
-            no_speech = item.whisper_no_speech_prob
-            if (
-                item.whisper_avg_logprob >= WHISPER_CONFIDENT_LOGPROB
-                and (no_speech is None or no_speech < WHISPER_HIGH_NO_SPEECH_PROB)
-            ):
-                item.selected_source = "whisper"
-                item.merge_action = "preferred_confident_whisper"
-                item.selection_reason = (
-                    "Whisper word confidence is high and no-speech probability is low"
-                )
-                continue
-            if no_speech is not None and no_speech >= WHISPER_HIGH_NO_SPEECH_PROB:
-                item.selected_source = "apple"
-                item.merge_action = "rejected_low_speech_whisper"
-                item.selection_reason = (
-                    "Whisper reports a high no-speech probability for this fragment"
-                )
-                continue
+            item.selected_source = "whisper"
+            item.merge_action = "preferred_verbatim_whisper"
+            item.selection_reason = (
+                "Low-risk difference: the verbatim Whisper reading is kept"
+            )
+            continue
 
         item.selected_source = primary_source
         item.merge_action = (
@@ -2462,12 +2411,7 @@ def compile_transcripts(
         "apple_only": sum(item.source_only_source == "apple" for item in differences),
         "whisper_only": sum(item.source_only_source == "whisper" for item in differences),
         "preserved": sum(
-            item.preservation_class
-            in {"preserved", "preserved_low_whisper_confidence"}
-            for item in differences
-        ),
-        "low_confidence_only_preserved": sum(
-            item.preservation_class == "preserved_low_whisper_confidence"
+            item.preservation_class == "preserved"
             for item in differences
         ),
         "discarded_confirmed_noise": sum(

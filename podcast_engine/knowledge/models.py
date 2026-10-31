@@ -16,6 +16,13 @@ NOTE_WRITER_POLICY_VERSION = "note-writer-v1"
 # Sonnet 5.5 writer calls took 60-220 s in the pilots; the shared
 # KNOWLEDGE_TIMEOUT_SECONDS (120 s) would cut the longest ones off.
 NOTE_WRITER_TIMEOUT_SECONDS = 420
+# TASK-119: the forced-decision coverage fill, its own OpenRouter preset
+# governed like the writer's (system prompt must equal
+# prompts/knowledge/note-fill-v1.md). Unset or blank disables the fill; the
+# Worker deploy gate requires it in production.
+NOTE_FILL_PRESET_ENV = "PODCAST_KNOWLEDGE_FILL_PRESET"
+# Fill calls took 6-23 s in the 2026-10-15 comparison.
+NOTE_FILL_TIMEOUT_SECONDS = 180
 
 
 METADATA_RESPONSE_SCHEMA = {

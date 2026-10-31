@@ -29,6 +29,7 @@ from compiler.third_asr_window import anchored_third_asr_window
 
 from .ai_budget import BudgetConcurrencyError, BudgetLedgerError
 from .ai_pricing import PricingResolutionError
+from .observability import emit_event
 from .human_review import (
     ThirdAsrClaimError,
     ensure_third_asr,
@@ -48,12 +49,36 @@ PREFETCH_MAX_CONSECUTIVE_FAILURES = 5
 # 74 cards).
 PREFETCH_CONCURRENCY_RETRIES = 4
 PREFETCH_WALL_CLOCK_SECONDS = 900
+# 2026-10-30: on the four episodes after the contention fix, 14 of 106 cards
+# still failed in the parallel pass with no recorded reason, and every one of
+# them transcribed fine when repeated later. Failed cards get one more try,
+# one at a time, after the parallel pass; each failure is logged by type.
+PREFETCH_RETRY_PAUSE_SECONDS = 2.0
 
 
 class _Stop(Exception):
     def __init__(self, reason: str):
         super().__init__(reason)
         self.reason = reason
+
+
+def _log_card_failure(episode_key: str, difference_id: int, error: Exception, attempt: int) -> None:
+    """One structured line per failed card: the error type and any HTTP status, never the message."""
+
+    response = getattr(error, "response", None)
+    status = getattr(response, "status_code", None)
+    if not isinstance(status, int):
+        status = getattr(error, "code", None) if isinstance(getattr(error, "code", None), int) else None
+    emit_event(
+        "third_asr_prefetch_card_failed",
+        "Third-ASR prefetch failed for one card",
+        severity="WARNING",
+        episode_key=episode_key,
+        difference_id=difference_id,
+        attempt=attempt,
+        error_type=type(error).__name__,
+        http_status=status,
+    )
 
 
 def prefetch_enabled() -> bool:
@@ -165,6 +190,7 @@ def prefetch_third_asr(
 
     deadline = monotonic() + PREFETCH_WALL_CLOCK_SECONDS
     state = {"consecutive_failures": 0, "stop": None}
+    attempt = {"pass": 1}
 
     def run_one(difference_id: int) -> str:
         if state["stop"] is not None:
@@ -187,7 +213,8 @@ def prefetch_third_asr(
         except (BudgetLedgerError, PricingResolutionError) as error:
             state["stop"] = type(error).__name__
             return "stopped"
-        except Exception:  # noqa: BLE001 - one card must not stop the queue
+        except Exception as error:  # noqa: BLE001 - one card must not stop the queue
+            _log_card_failure(episode_key, difference_id, error, attempt["pass"])
             state["consecutive_failures"] += 1
             if state["consecutive_failures"] >= PREFETCH_MAX_CONSECUTIVE_FAILURES:
                 state["stop"] = "consecutive_failures"
@@ -196,9 +223,21 @@ def prefetch_third_asr(
         return "fetched"
 
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
-        outcomes = list(pool.map(run_one, candidates))
+        outcomes = dict(zip(candidates, pool.map(run_one, candidates)))
 
-    counts = Counter(outcomes)
+    failed = [difference_id for difference_id, outcome in outcomes.items() if outcome == "failed"]
+    summary["retried"] = 0
+    if failed and state["stop"] is None:
+        # One more try for each failed card, one at a time: no competing
+        # writes on the episode's ledger and review record.
+        attempt["pass"] = 2
+        state["consecutive_failures"] = 0
+        sleep(PREFETCH_RETRY_PAUSE_SECONDS)
+        for difference_id in failed:
+            outcomes[difference_id] = run_one(difference_id)
+        summary["retried"] = len(failed)
+
+    counts = Counter(outcomes.values())
     summary["fetched"] = counts.get("fetched", 0)
     summary["in_flight"] = counts.get("in_flight", 0)
     summary["failed"] = counts.get("failed", 0)

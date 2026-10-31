@@ -11,6 +11,7 @@ from ..episode_generation import source_generation_fingerprint_from_episode
 from ..rss import fetch_episode_description
 from ..storage import download_file_from_gcs, get_bucket
 from .frontmatter import render
+from .notes_v3 import fill_stage as note_fill
 from .notes_v3 import render as note_render
 from .notes_v3 import schema as note_schema
 from .notes_v3 import writer as note_writer
@@ -109,6 +110,12 @@ def _render_version(manifest: dict) -> str:
     return manifest["summary"].get("render_version") or note_render.LEGACY_RENDER_VERSION
 
 
+def _fill_pending(manifest: dict) -> bool:
+    return note_fill.fill_pending(
+        manifest.get("note_fill"), enabled=note_fill.note_fill_preset() is not None
+    )
+
+
 def _note_writer_matches(
     manifest: dict | None,
     fingerprint: str,
@@ -119,6 +126,7 @@ def _note_writer_matches(
     metadata_record = manifest.get("metadata") if isinstance(manifest, dict) else None
     return (
         _note_writer_record_matches(manifest, fingerprint, preset)
+        and not _fill_pending(manifest)
         and _render_version(manifest) == note_render.RENDER_VERSION
         and isinstance(record, dict)
         and isinstance(metadata_record, dict)
@@ -161,7 +169,10 @@ def _build_single_pass_note(episode: dict, preset: str) -> str:
     manifest are uploaded only after the note has passed structural
     validation and the deterministic checks. The checked structured note
     lives inside the manifest (``note_writer.note``), so no new GCS object
-    -- and no change to the named-object IAM contract -- is needed.
+    -- and no change to the named-object IAM contract -- is needed. The
+    TASK-119 coverage fill runs on that checked note; its record and, when
+    applied, the filled note the body is rendered from live in
+    ``note_fill``.
     """
 
     episode_key = episode["episode_key"]
@@ -197,10 +208,25 @@ def _build_single_pass_note(episode: dict, preset: str) -> str:
         }
     elif _note_writer_record_matches(manifest, fingerprint, preset):
         # Same checked note, newer renderer (or a changed body object):
-        # re-render from the stored note -- no model call, no spend.
-        print("Knowledge note re-render")
+        # re-render from the stored note -- no model call, no spend -- unless
+        # the coverage fill is enabled and has no current result for it
+        # (TASK-119; e.g. notes written before the fill existed).
+        if _fill_pending(manifest):
+            print("Knowledge note coverage fill")
+            source_fingerprint = source_generation_fingerprint_from_episode(episode)
+            outcome = note_fill.run_fill(
+                manifest["note_writer"]["note"],
+                transcript,
+                title=str(episode.get("title") or ""),
+                episode_key=episode_key,
+                source_fingerprint=source_fingerprint,
+            )
+            manifest["note_fill"] = outcome.record
+            manifest["note_writer"]["episode_spend"] = _episode_spend(episode_key, source_fingerprint)
+        else:
+            print("Knowledge note re-render")
         unit_report = UnitReport()
-        body = note_render.render_body(manifest["note_writer"]["note"], unit_report)
+        body = note_render.render_body(note_fill.published_note(manifest), unit_report)
         _write_text(body_path, body)
         _upload_text_if_changed(body_path, paths["summary_body"], "text/markdown; charset=utf-8")
         manifest["summary"]["body_sha256"] = _sha256_bytes(body.encode("utf-8"))
@@ -226,8 +252,20 @@ def _build_single_pass_note(episode: dict, preset: str) -> str:
             source_fingerprint=source_fingerprint,
             description=description,
         )
+        outcome = note_fill.run_fill(
+            result.note,
+            transcript,
+            title=str(episode.get("title") or ""),
+            episode_key=episode_key,
+            source_fingerprint=source_fingerprint,
+        )
         generated_at = now_iso()
-        body = result.body
+        if outcome.status == "applied":
+            unit_report = UnitReport()
+            body = note_render.render_body(outcome.note, unit_report)
+        else:
+            unit_report = result.unit_report
+            body = result.body
         body_bytes = body.encode("utf-8")
         metadata_values = tag_registry.resolve_and_record(
             episode_key,
@@ -250,6 +288,10 @@ def _build_single_pass_note(episode: dict, preset: str) -> str:
             },
             "note_writer": {
                 **note_writer.audit_record(result),
+                "units": {
+                    "unbraced_imperial": list(unit_report.unbraced_imperial),
+                    "unknown_units": list(unit_report.unknown_units),
+                },
                 "episode_spend": _episode_spend(episode_key, source_fingerprint),
                 "description_sha256": (
                     _sha256_bytes(description.encode("utf-8")) if description else None
@@ -261,6 +303,7 @@ def _build_single_pass_note(episode: dict, preset: str) -> str:
                     ).encode("utf-8")
                 ),
             },
+            "note_fill": outcome.record,
             "metadata": {
                 "policy_version": NOTE_WRITER_POLICY_VERSION,
                 "preset": preset,

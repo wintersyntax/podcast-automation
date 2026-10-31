@@ -59,6 +59,8 @@ const statusLabel=value=>{
   if(value==="awaiting_vault_sync")return "Awaiting Mac sync";
   if(value==="awaiting_summary")return "Awaiting summary";
   if(value==="processing")return "Processing";
+  if(value==="duplicate")return "Skipped: duplicate";
+  if(value==="not_applicable")return "Not needed";
   if(value==="starting"||value==="started")return value+" (audit only)";
   return String(value||"unknown").replaceAll("_"," ");
 };
@@ -92,6 +94,7 @@ function render(){
     const title=document.createElement("span");title.className="title";title.textContent=row.title;first.append(title);
     const podcast=document.createElement("span");podcast.className="sub";podcast.textContent=row.podcast||"Unknown podcast";first.append(podcast);
     const key=document.createElement("span");key.className="sub";key.textContent=row.episode_key;first.append(key);
+    if(row.duplicate_of){const dup=document.createElement("span");dup.className="sub";dup.textContent="Same conversation as "+(row.duplicate_of.podcast||"another show")+": "+(row.duplicate_of.title||row.duplicate_of.episode_key||"an earlier episode")+" — not processed again";first.append(dup);}
     cell(tr,row.apple,true);cell(tr,row.whisper,true);cell(tr,row.compiler,true);
     const review=cell(tr,row.review.state,true);
     const progress=document.createElement("span");progress.className="sub";
