@@ -1,0 +1,9 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Reviewed synthetic episode key, not a credential"
+condition = "AND"
+paths = ['''(^|/)tests/test_(transcriber|whisper_producer_iam_policy)\.py$''']
+regexTarget = "secret"
+regexes = ['''^0123456789abcdef01234567$''']
