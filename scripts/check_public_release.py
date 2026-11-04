@@ -19,7 +19,7 @@ PRIVATE_PREFIXES = (
     "scripts/cline_", "scripts/semantic_auditor",
 )
 PRIVATE_EXACT = frozenset({
-    "AGENTS.md", "docs/do-not-forget-ledger.md",
+    "docs/do-not-forget-ledger.md",
     "docs/compiler-review-evidence.md", "docs/self-hosted-ci-runbook.md",
     "config/podcasts.private.json", ".env", ".env.production",
 })

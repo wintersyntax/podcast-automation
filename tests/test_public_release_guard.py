@@ -8,9 +8,12 @@ class PublicReleaseTests(unittest.TestCase):
     def test_private_paths_fail_closed(self):
         self.assertIsNotNone(path_problem(".clinerules/shell-policy"))
         self.assertIsNotNone(path_problem("docs/knowledge-eval/real-evidence.md"))
-        self.assertIsNotNone(path_problem("AGENTS.md"))
+        self.assertIsNotNone(path_problem("docs/do-not-forget-ledger.md"))
         self.assertIsNone(path_problem("assets/demo-podcastops-dashboard.png"))
         self.assertIsNone(path_problem("config/podcasts.example.json"))
+
+    def test_public_agent_policy_is_allowed(self):
+        self.assertIsNone(path_problem("AGENTS.md"))
 
     def test_credentials_and_real_identity_rejected(self):
         secret = "sk-" + "or-v1-" + "x" * 32
