@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(git -C "$(dirname "$0")/.." rev-parse --show-toplevel 2>/dev/null || true)"
+if [[ -z "$ROOT" ]]; then
+  echo "error: production-worker-status must be run from a Git checkout" >&2
+  exit 2
+fi
+cd "$ROOT"
+
+if ! command -v gcloud >/dev/null 2>&1; then
+  echo "error: gcloud is required" >&2
+  exit 127
+fi
+if ! command -v uv >/dev/null 2>&1; then
+  echo "error: uv is required for local Podcast Worker Python tooling" >&2
+  exit 127
+fi
+
+PROJECT="${PODCAST_GCP_PROJECT:-YOUR_GCP_PROJECT_ID}"
+REGION="${PODCAST_GCP_REGION:-europe-west1}"
+JOB="${PODCAST_WORKER_JOB:-podcast-worker}"
+PACKAGE="${PODCAST_WORKER_PACKAGE:-europe-west1-docker.pkg.dev/${PROJECT}/podcast-worker/podcast-worker}"
+PRODUCTION_REF="${PACKAGE}:production"
+
+TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/podcast-worker-production-status.XXXXXX")"
+trap 'rm -rf "$TMP_DIR"' EXIT
+JOB_JSON="$TMP_DIR/job.json"
+TAG_JSON="$TMP_DIR/tag.json"
+
+gcloud run jobs describe "$JOB" \
+  --project="$PROJECT" \
+  --region="$REGION" \
+  --format=json \
+  > "$JOB_JSON"
+
+gcloud artifacts docker images describe "$PRODUCTION_REF" \
+  --project="$PROJECT" \
+  --format=json \
+  > "$TAG_JSON"
+
+uv run \
+  --python 3.12 \
+  --with-requirements requirements.txt \
+  python - "$JOB_JSON" "$TAG_JSON" "$PACKAGE" <<'PY'
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import sys
+from typing import Any
+
+job_path = Path(sys.argv[1])
+tag_path = Path(sys.argv[2])
+package = sys.argv[3]
+
+
+def load_json(path: Path) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"error: could not parse {path.name}: {exc}") from exc
+
+
+def container_images(node: Any) -> list[str]:
+    found: list[str] = []
+    if isinstance(node, dict):
+        containers = node.get("containers")
+        if isinstance(containers, list):
+            for container in containers:
+                if isinstance(container, dict):
+                    image = container.get("image")
+                    if isinstance(image, str) and image:
+                        found.append(image)
+        for value in node.values():
+            found.extend(container_images(value))
+    elif isinstance(node, list):
+        for value in node:
+            found.extend(container_images(value))
+    return found
+
+
+def digest_references(node: Any) -> list[str]:
+    found: list[str] = []
+    if isinstance(node, dict):
+        for value in node.values():
+            found.extend(digest_references(value))
+    elif isinstance(node, list):
+        for value in node:
+            found.extend(digest_references(value))
+    elif isinstance(node, str) and "@sha256:" in node:
+        found.append(node)
+    return found
+
+
+def unique_expected(values: list[str], *, kind: str) -> str:
+    expected = sorted({value for value in values if value.startswith(package)})
+    if len(expected) != 1:
+        printable = ", ".join(expected) if expected else "none"
+        raise SystemExit(
+            f"error: expected exactly one {kind} for {package}; found {len(expected)} ({printable})"
+        )
+    return expected[0]
+
+
+job = load_json(job_path)
+tag = load_json(tag_path)
+active_image = unique_expected(container_images(job), kind="active Worker container image")
+production_digest = unique_expected(
+    digest_references(tag), kind="Artifact Registry production digest"
+)
+
+if "@sha256:" not in active_image:
+    raise SystemExit(
+        "error: active Worker image is not pinned by digest: " + active_image
+    )
+
+print("===== WORKER PRODUCTION IMAGE STATUS =====")
+print(f"Active image:      {active_image}")
+print(f"Production digest: {production_digest}")
+
+if active_image != production_digest:
+    print("Status: MISMATCH", file=sys.stderr)
+    raise SystemExit(1)
+
+print("Status: MATCH")
+PY

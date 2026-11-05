@@ -1,0 +1,19 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    env:
+      - DOCKER_BUILDKIT=1
+    args:
+      - -ceu
+      - |
+        docker build \
+          --tag "${_IMAGE}" \
+          .
+
+images:
+  - ${_IMAGE}
+
+serviceAccount: projects/$PROJECT_ID/serviceAccounts/podcast-worker-build@YOUR_GCP_PROJECT_ID.iam.gserviceaccount.com
+
+options:
+  logging: CLOUD_LOGGING_ONLY
